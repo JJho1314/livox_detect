@@ -82,7 +82,7 @@ public:
 
     ~livox_detection();
 
-    void preprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pcl_pc_ptr, float *out_points_array);
+    void preprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pcl_pc_ptr, pcl::PointCloud<pcl::PointXYZ>::Ptr &out_pcl_pc_ptr, float *out_points_array);
 
     void doprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pcl_pc_ptr);
 
@@ -105,7 +105,7 @@ private:
     float offset_ground = 1.8;
     float cloud_x_min = 0;
     float cloud_x_max = 224;
-    float cloud_y_min = 1;
+    float cloud_y_min = -44.8;
     float cloud_y_max = 44.8;
     float cloud_z_min = -2;
     float cloud_z_max = 4;
@@ -113,8 +113,9 @@ private:
     float point_cloud_range[6] = {0, -44.8, -2, 224, 44.8, 4};
     float score_thresh[3] = {0.2, 0.3, 0.3};
     const int NUM_CLASS_ = 3;
-    const int ANCHOR_SIZE = 9;
-    const int OUTPUT_SIZE = 1 * 500 * 9;
+    const int ANCHOR_SIZE = 11;
+    // const int OUTPUT_SIZE = 1 * 11 * 448 * 1120;
+    const int OUTPUT_SIZE = 1 * 9 * 500;
 
     void *head_buffers_[3];
 };

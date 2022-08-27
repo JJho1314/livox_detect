@@ -32,6 +32,10 @@
 #include <pcl/common/common.h>
 #include <pcl/common/transforms.h>
 #include <pcl/filters/passthrough.h>
+#include <pcl/point_types.h>
+#include <pcl/point_cloud.h>
+#include <pcl/io/pcd_io.h>
+#include <pcl/visualization/pcl_visualizer.h>
 
 #define checkRuntime(op) __check_cuda_runtime((op), #op, __FILE__, __LINE__)
 
@@ -176,14 +180,15 @@ void livox_detection::mask_points_out_of_range(pcl::PointCloud<pcl::PointXYZ>::P
     pcl::PointXYZ min;
     pcl::PointXYZ max;
 
-    point_filter(in_pcl_pc_ptr, cloud_x_min, cloud_x_max, "x", false);
-    point_filter(in_pcl_pc_ptr, cloud_y_min, cloud_y_max, "y", false);
-    point_filter(in_pcl_pc_ptr, cloud_z_min, cloud_z_max, "z", false);
+    point_filter(in_pcl_pc_ptr, cloud_x_min, cloud_x_max - 0.01, "x", false);
+    point_filter(in_pcl_pc_ptr, cloud_y_min, cloud_y_max - 0.01, "y", false);
+    point_filter(in_pcl_pc_ptr, cloud_z_min, cloud_z_max - 0.01, "z", false);
 
     pcl::getMinMax3D(*in_pcl_pc_ptr, min, max);
 
     std::cout << max.x << "," << min.x << std::endl;
     std::cout << max.y << "," << min.y << std::endl;
+    std::cout << max.z << "," << min.z << std::endl;
 }
 
 void livox_detection::pclToArray(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pcl_pc_ptr, float *out_points_array)
@@ -192,21 +197,9 @@ void livox_detection::pclToArray(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_p
     float DY = voxel_size[1];
     float DZ = voxel_size[2];
 
-    float theta = -M_PI / 37;
-
-    pcl::PointCloud<pcl::PointXYZ>::Ptr transformed_cloud_ptr(new pcl::PointCloud<pcl::PointXYZ>);
-
-    Eigen::Affine3f transform = Eigen::Affine3f::Identity();
-    transform.rotate(Eigen::AngleAxisf(theta, Eigen::Vector3f::UnitX())); //同理，UnitX(),绕X轴；UnitY(),绕Y轴
-    transform.translation() << 0.0, 0.0, offset_ground;                   // 三个数分别对应X轴、Y轴、Z轴方向上的平移
-
-    pcl::transformPointCloud(*in_pcl_pc_ptr, *transformed_cloud_ptr, transform);
-
-    mask_points_out_of_range(transformed_cloud_ptr);
-
-    for (size_t i = 0; i < transformed_cloud_ptr->size(); i++)
+    for (size_t i = 0; i < in_pcl_pc_ptr->size(); i++)
     {
-        pcl::PointXYZ point = transformed_cloud_ptr->at(i);
+        pcl::PointXYZ point = in_pcl_pc_ptr->at(i);
         int pc_lidar_x = floor((point.x - cloud_x_min) / DX);
         int pc_lidar_y = floor((point.y - cloud_y_min) / DY);
         int pc_lidar_z = floor((point.z - cloud_z_min) / DZ);
@@ -214,11 +207,21 @@ void livox_detection::pclToArray(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_p
     }
 }
 
-void livox_detection::preprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pcl_pc_ptr, float *out_points_array)
+void livox_detection::preprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pcl_pc_ptr, pcl::PointCloud<pcl::PointXYZ>::Ptr &out_pcl_pc_ptr, float *out_points_array)
 {
     std::cout << "livox detect preprocess start" << std::endl;
 
-    pclToArray(in_pcl_pc_ptr, out_points_array);
+    float theta = 0;
+
+    Eigen::Affine3f transform = Eigen::Affine3f::Identity();
+    transform.rotate(Eigen::AngleAxisf(theta, Eigen::Vector3f::UnitX())); //同理，UnitX(),绕X轴；UnitY(),绕Y轴
+    transform.translation() << 0.0, 0.0, offset_ground;                   // 三个数分别对应X轴、Y轴、Z轴方向上的平移
+
+    pcl::transformPointCloud(*in_pcl_pc_ptr, *out_pcl_pc_ptr, transform);
+
+    mask_points_out_of_range(out_pcl_pc_ptr);
+
+    pclToArray(out_pcl_pc_ptr, out_points_array);
 
     std::cout << "livox detect preprocess finish" << std::endl;
 }
@@ -251,10 +254,10 @@ void livox_detection::doprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pc
     {
         points_array[i] = 0;
     }
-    // 14770828
-    //  memset(points_array, 0, input_numel * sizeof(float));
 
-    preprocess(in_pcl_pc_ptr, points_array);
+    pcl::PointCloud<pcl::PointXYZ>::Ptr transformed_cloud_ptr(new pcl::PointCloud<pcl::PointXYZ>);
+
+    preprocess(in_pcl_pc_ptr, transformed_cloud_ptr, points_array);
 
     checkRuntime(cudaMallocHost(&input_data_host, input_numel * sizeof(float)));
     checkRuntime(cudaMalloc(&input_data_device, input_numel * sizeof(float)));
@@ -290,15 +293,14 @@ void livox_detection::doprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pc
 
     clock_t end = clock();
 
-    printf("Total time: %lf s \n", (double)(end - start) / CLOCKS_PER_SEC);
+    std::vector<Box> Box_Vehicle;
+    std::vector<Box> Box_Pedestrian_before;
+    std::vector<Box> Box_Cyclist_before;
 
-    std::cout << "livox detect infer finish" << std::endl;
-
-    std::vector<Box> Box_before;
     for (int i = 0; i < 500; i++)
     {
-        Box box;
         float *ptr = output_data_host + i * 9;
+        Box box;
         box.x = ptr[0];
         box.y = ptr[1];
         box.z = ptr[2];
@@ -308,15 +310,58 @@ void livox_detection::doprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pc
         box.theta = ptr[6];
         box.score = ptr[7];
         box.cls = ptr[8];
+
         if (box.x > cloud_x_min && box.x < cloud_x_max && box.y > cloud_y_min && box.y < cloud_y_max && box.z > cloud_z_min && box.z < cloud_z_max && box.score > score_thresh[box.cls])
-            Box_before.push_back(box);
+        {
+            if (box.cls == 0)
+            {
+                Box_Vehicle.push_back(box);
+            }
+            else if (box.cls == 1)
+            {
+                Box_Pedestrian_before.push_back(box);
+            }
+            else if (box.cls == 2)
+            {
+                Box_Cyclist_before.push_back(box);
+            }
+        }
     }
+
+    printf("Total time: %lf s \n", (double)(end - start) / CLOCKS_PER_SEC);
+
+    std::cout << "livox detect infer finish" << std::endl;
 
     delete[] points_array;
     // checkRuntime(cudaFreeHost(input_data_host));
     checkRuntime(cudaFreeHost(output_data_host));
     checkRuntime(cudaFree(input_data_device));
     checkRuntime(cudaFree(output_data_device));
+
+    boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer(new pcl::visualization::PCLVisualizer("cloud"));
+    viewer->addPointCloud<pcl::PointXYZ>(transformed_cloud_ptr, "sample cloud");
+    viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "sample cloud");
+    viewer->addCoordinateSystem(1.0);
+    viewer->initCameraParameters();
+
+    viewer->setBackgroundColor(0, 0, 0);
+
+    for (int i = 0; i < Box_Vehicle.size(); i++)
+    {
+        std::string name = "Vehicle" + std::to_string(i);
+        viewer->addCube(float(Box_Vehicle[i].x) - Box_Vehicle[i].dx / 2, Box_Vehicle[i].x + Box_Vehicle[i].dx / 2, float(Box_Vehicle[i].y) - Box_Vehicle[i].dy / 2, Box_Vehicle[i].y + Box_Vehicle[i].dy / 2, float(Box_Vehicle[i].z) - Box_Vehicle[i].dz / 2, Box_Vehicle[i].z + Box_Vehicle[i].dz / 2, 1.0, 1.0, 1.0, name);
+        viewer->setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR, 1, 0, 0, name); //绿框
+        viewer->setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_REPRESENTATION, pcl::visualization::PCL_VISUALIZER_REPRESENTATION_WIREFRAME, name);
+
+        viewer->setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_OPACITY, 0.1, name);
+        viewer->setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 3, name);
+    }
+
+    while (!viewer->wasStopped())
+    {
+        viewer->spinOnce(100);
+        boost::this_thread::sleep(boost::posix_time::microseconds(100000));
+    }
 }
 
 void livox_detection::postprocess(const float *in_points_array)
