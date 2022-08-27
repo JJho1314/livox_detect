@@ -94,7 +94,7 @@ std::vector<unsigned char> load_file(const std::string &file)
 // 上一节的代码
 bool build_model()
 {
-    if (exists("livox_detection_sim.engine"))
+    if (exists("Livox_detection_sim.engine"))
     {
         printf("Engine file has exists.\n");
         return true;
@@ -109,7 +109,7 @@ bool build_model()
 
     // 通过onnxparser解析器解析的结果会填充到network中，类似addConv的方式添加进去
     auto parser = make_nvshared(nvonnxparser::createParser(*network, logger));
-    if (!parser->parseFromFile("livox_detection_sim.onnx", 1))
+    if (!parser->parseFromFile("Livox_detection_sim.onnx", 1))
     {
         printf("Failed to parse onnx\n");
 
@@ -143,7 +143,7 @@ bool build_model()
 
     // 将模型序列化，并储存为文件
     auto model_data = make_nvshared(engine->serialize());
-    FILE *f = fopen("livox_detection_sim.engine", "wb");
+    FILE *f = fopen("Livox_detection_sim.engine", "wb");
     fwrite(model_data->data(), 1, model_data->size(), f);
     fclose(f);
 
@@ -229,7 +229,7 @@ void livox_detection::preprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_p
 void livox_detection::doprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pcl_pc_ptr)
 {
     TRTLogger logger;
-    auto engine_data = load_file("livox_detection_sim.engine");
+    auto engine_data = load_file("Livox_detection_sim.engine");
     auto runtime = make_nvshared(nvinfer1::createInferRuntime(logger));
     auto engine = make_nvshared(runtime->deserializeCudaEngine(engine_data.data(), engine_data.size()));
     if (engine == nullptr)
@@ -293,40 +293,40 @@ void livox_detection::doprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pc
 
     clock_t end = clock();
 
-    std::vector<Box> Box_Vehicle;
-    std::vector<Box> Box_Pedestrian_before;
-    std::vector<Box> Box_Cyclist_before;
+    // std::vector<Box> Box_Vehicle;
+    // std::vector<Box> Box_Pedestrian_before;
+    // std::vector<Box> Box_Cyclist_before;
 
-    for (int i = 0; i < 500; i++)
-    {
-        float *ptr = output_data_host + i * 9;
-        Box box;
-        box.x = ptr[0];
-        box.y = ptr[1];
-        box.z = ptr[2];
-        box.dx = ptr[3];
-        box.dy = ptr[4];
-        box.dz = ptr[5];
-        box.theta = ptr[6];
-        box.score = ptr[7];
-        box.cls = ptr[8];
+    // for (int i = 0; i < 500; i++)
+    // {
+    //     float *ptr = output_data_host + i * 9;
+    //     Box box;
+    //     box.x = ptr[0];
+    //     box.y = ptr[1];
+    //     box.z = ptr[2];
+    //     box.dx = ptr[3];
+    //     box.dy = ptr[4];
+    //     box.dz = ptr[5];
+    //     box.theta = ptr[6];
+    //     box.score = ptr[7];
+    //     box.cls = ptr[8];
 
-        if (box.x > cloud_x_min && box.x < cloud_x_max && box.y > cloud_y_min && box.y < cloud_y_max && box.z > cloud_z_min && box.z < cloud_z_max && box.score > score_thresh[box.cls])
-        {
-            if (box.cls == 0)
-            {
-                Box_Vehicle.push_back(box);
-            }
-            else if (box.cls == 1)
-            {
-                Box_Pedestrian_before.push_back(box);
-            }
-            else if (box.cls == 2)
-            {
-                Box_Cyclist_before.push_back(box);
-            }
-        }
-    }
+    //     if (box.x > cloud_x_min && box.x < cloud_x_max && box.y > cloud_y_min && box.y < cloud_y_max && box.z > cloud_z_min && box.z < cloud_z_max && box.score > score_thresh[box.cls])
+    //     {
+    //         if (box.cls == 0)
+    //         {
+    //             Box_Vehicle.push_back(box);
+    //         }
+    //         else if (box.cls == 1)
+    //         {
+    //             Box_Pedestrian_before.push_back(box);
+    //         }
+    //         else if (box.cls == 2)
+    //         {
+    //             Box_Cyclist_before.push_back(box);
+    //         }
+    //     }
+    // }
 
     printf("Total time: %lf s \n", (double)(end - start) / CLOCKS_PER_SEC);
 
@@ -338,30 +338,30 @@ void livox_detection::doprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pc
     checkRuntime(cudaFree(input_data_device));
     checkRuntime(cudaFree(output_data_device));
 
-    boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer(new pcl::visualization::PCLVisualizer("cloud"));
-    viewer->addPointCloud<pcl::PointXYZ>(transformed_cloud_ptr, "sample cloud");
-    viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "sample cloud");
-    viewer->addCoordinateSystem(1.0);
-    viewer->initCameraParameters();
+    // boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer(new pcl::visualization::PCLVisualizer("cloud"));
+    // viewer->addPointCloud<pcl::PointXYZ>(transformed_cloud_ptr, "sample cloud");
+    // viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "sample cloud");
+    // viewer->addCoordinateSystem(1.0);
+    // viewer->initCameraParameters();
 
-    viewer->setBackgroundColor(0, 0, 0);
+    // viewer->setBackgroundColor(0, 0, 0);
 
-    for (int i = 0; i < Box_Vehicle.size(); i++)
-    {
-        std::string name = "Vehicle" + std::to_string(i);
-        viewer->addCube(float(Box_Vehicle[i].x) - Box_Vehicle[i].dx / 2, Box_Vehicle[i].x + Box_Vehicle[i].dx / 2, float(Box_Vehicle[i].y) - Box_Vehicle[i].dy / 2, Box_Vehicle[i].y + Box_Vehicle[i].dy / 2, float(Box_Vehicle[i].z) - Box_Vehicle[i].dz / 2, Box_Vehicle[i].z + Box_Vehicle[i].dz / 2, 1.0, 1.0, 1.0, name);
-        viewer->setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR, 1, 0, 0, name); //绿框
-        viewer->setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_REPRESENTATION, pcl::visualization::PCL_VISUALIZER_REPRESENTATION_WIREFRAME, name);
+    // for (int i = 0; i < Box_Vehicle.size(); i++)
+    // {
+    //     std::string name = "Vehicle" + std::to_string(i);
+    //     viewer->addCube(float(Box_Vehicle[i].x) - Box_Vehicle[i].dx / 2, Box_Vehicle[i].x + Box_Vehicle[i].dx / 2, float(Box_Vehicle[i].y) - Box_Vehicle[i].dy / 2, Box_Vehicle[i].y + Box_Vehicle[i].dy / 2, float(Box_Vehicle[i].z) - Box_Vehicle[i].dz / 2, Box_Vehicle[i].z + Box_Vehicle[i].dz / 2, 1.0, 1.0, 1.0, name);
+    //     viewer->setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR, 1, 0, 0, name); //绿框
+    //     viewer->setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_REPRESENTATION, pcl::visualization::PCL_VISUALIZER_REPRESENTATION_WIREFRAME, name);
 
-        viewer->setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_OPACITY, 0.1, name);
-        viewer->setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 3, name);
-    }
+    //     viewer->setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_OPACITY, 0.1, name);
+    //     viewer->setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 3, name);
+    // }
 
-    while (!viewer->wasStopped())
-    {
-        viewer->spinOnce(100);
-        boost::this_thread::sleep(boost::posix_time::microseconds(100000));
-    }
+    // while (!viewer->wasStopped())
+    // {
+    //     viewer->spinOnce(100);
+    //     boost::this_thread::sleep(boost::posix_time::microseconds(100000));
+    // }
 }
 
 void livox_detection::postprocess(const float *in_points_array)

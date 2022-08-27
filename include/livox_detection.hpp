@@ -114,8 +114,8 @@ private:
     float score_thresh[3] = {0.2, 0.3, 0.3};
     const int NUM_CLASS_ = 3;
     const int ANCHOR_SIZE = 11;
-    // const int OUTPUT_SIZE = 1 * 11 * 448 * 1120;
-    const int OUTPUT_SIZE = 1 * 9 * 500;
+    const int OUTPUT_SIZE = 1 * 11 * 448 * 1120;
+    // const int OUTPUT_SIZE = 1 * 9 * 500;
 
     void *head_buffers_[3];
 };
