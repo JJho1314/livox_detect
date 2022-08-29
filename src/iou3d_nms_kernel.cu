@@ -14,6 +14,7 @@ All Rights Reserved 2019-2020.
 #include <thrust/gather.h>
 #include <thrust/transform.h>
 #include <thrust/count.h>
+#include <common.h>
 #include <config.h>
 
 #define THREADS_PER_BLOCK 16
@@ -140,19 +141,6 @@ __device__ inline float box_overlap(const float *box_a, const float *box_b)
   float b_x2 = box_b[0] + b_dx_half, b_y2 = box_b[1] + b_dy_half;
 
   Point center_a(box_a[0], box_a[1]);
-  __device__ inline float iou_normal(float const *const a, float const *const b)
-  {
-    // params: a: [x, y, z, dx, dy, dz, heading]
-    // params: b: [x, y, z, dx, dy, dz, heading]
-
-    float left = fmaxf(a[0] - a[3] / 2, b[0] - b[3] / 2), right = fminf(a[0] + a[3] / 2, b[0] + b[3] / 2);
-    float top = fmaxf(a[1] - a[4] / 2, b[1] - b[4] / 2), bottom = fminf(a[1] + a[4] / 2, b[1] + b[4] / 2);
-    float width = fmaxf(right - left, 0.f), height = fmaxf(bottom - top, 0.f);
-    float interS = width * height;
-    float Sa = a[3] * a[4];
-    float Sb = b[3] * b[4];
-    return interS / fmaxf(Sa + Sb - interS, EPS);
-  }
   Point center_b(box_b[0], box_b[1]);
 
 #ifdef DEBUG
@@ -257,19 +245,7 @@ __device__ inline float box_overlap(const float *box_a, const float *box_b)
       }
     }
   }
-  __device__ inline float iou_normal(float const *const a, float const *const b)
-  {
-    // params: a: [x, y, z, dx, dy, dz, heading]
-    // params: b: [x, y, z, dx, dy, dz, heading]
 
-    float left = fmaxf(a[0] - a[3] / 2, b[0] - b[3] / 2), right = fminf(a[0] + a[3] / 2, b[0] + b[3] / 2);
-    float top = fmaxf(a[1] - a[4] / 2, b[1] - b[4] / 2), bottom = fminf(a[1] + a[4] / 2, b[1] + b[4] / 2);
-    float width = fmaxf(right - left, 0.f), height = fmaxf(bottom - top, 0.f);
-    float interS = width * height;
-    float Sa = a[3] * a[4];
-    float Sb = b[3] * b[4];
-    return interS / fmaxf(Sa + Sb - interS, EPS);
-  }
 #ifdef DEBUG
   printf("cnt=%d\n", cnt);
   for (int i = 0; i < cnt; i++)
@@ -385,106 +361,6 @@ __global__ void nms_kernel(const int boxes_num, const float nms_overlap_thresh,
   }
 }
 
-__global__ void tmpfunc(const int boxes_num, const float nms_overlap_thresh,
-                        const float *reg, const float *height, const float *dim, const float *rot, const int *indexs, unsigned long long *mask, float *block_boxes)
-{
-  const int row_start = blockIdx.y;
-  const int col_start = blockIdx.x;
-
-  // if (row_start > col_start) return;
-  const int row_size = fminf(boxes_num - row_start * THREADS_PER_BLOCK_NMS, THREADS_PER_BLOCK_NMS);
-  const int col_size = fminf(boxes_num - col_start * THREADS_PER_BLOCK_NMS, THREADS_PER_BLOCK_NMS);
-
-  if (row_start + col_start == 0 && threadIdx.x < col_size)
-  {
-    const int col_actual_idx = indexs[THREADS_PER_BLOCK_NMS * col_start + threadIdx.x];
-
-    block_boxes[threadIdx.x * 7 + 0] = reg[col_actual_idx];
-    block_boxes[threadIdx.x * 7 + 1] = reg[OUTPUT_H * OUTPUT_W + col_actual_idx];
-    block_boxes[threadIdx.x * 7 + 2] = height[col_actual_idx];
-    block_boxes[threadIdx.x * 7 + 3] = dim[col_actual_idx];
-    block_boxes[threadIdx.x * 7 + 4] = dim[col_actual_idx + OUTPUT_W * OUTPUT_H];
-    block_boxes[threadIdx.x * 7 + 5] = dim[col_actual_idx + OUTPUT_W * OUTPUT_H * 2];
-    float theta = atan2f(rot[col_actual_idx], rot[col_actual_idx + OUTPUT_W * OUTPUT_H]);
-    block_boxes[threadIdx.x * 7 + 6] = theta;
-  }
-}
-
-__global__ void raw_nms_kernel(const int boxes_num, const float nms_overlap_thresh,
-                               const float *reg, const float *height, const float *dim, const float *rot, const int *indexs, unsigned long long *mask)
-{
-  // params: mask (N, N/THREADS_PER_BLOCK_NMS)
-
-  const int row_start = blockIdx.y;
-  const int col_start = blockIdx.x;
-
-  // if (row_start > col_start) return;
-  const int row_size = fminf(boxes_num - row_start * THREADS_PER_BLOCK_NMS, THREADS_PER_BLOCK_NMS);
-  const int col_size = fminf(boxes_num - col_start * THREADS_PER_BLOCK_NMS, THREADS_PER_BLOCK_NMS);
-
-  __shared__ float block_boxes[THREADS_PER_BLOCK_NMS * 7];
-
-  if (threadIdx.x < col_size)
-  {
-    const int col_actual_idx = indexs[THREADS_PER_BLOCK_NMS * col_start + threadIdx.x];
-    const int xIdx = col_actual_idx % OUTPUT_W;
-    const int yIdx = col_actual_idx / OUTPUT_W;
-
-    // encode boxs according kitti  format : (N, 7) [x, y, z, dy, dx, dz, heading]
-    block_boxes[threadIdx.x * 7 + 0] = (reg[col_actual_idx] + xIdx) * OUT_SIZE_FACTOR * X_STEP + X_MIN;
-    block_boxes[threadIdx.x * 7 + 1] = (reg[OUTPUT_H * OUTPUT_W + col_actual_idx] + yIdx) * OUT_SIZE_FACTOR * Y_STEP + Y_MIN;
-    block_boxes[threadIdx.x * 7 + 2] = height[col_actual_idx];
-    block_boxes[threadIdx.x * 7 + 4] = dim[col_actual_idx];
-    block_boxes[threadIdx.x * 7 + 3] = dim[col_actual_idx + OUTPUT_W * OUTPUT_H];
-    block_boxes[threadIdx.x * 7 + 5] = dim[col_actual_idx + OUTPUT_W * OUTPUT_H * 2];
-    float theta = atan2f(rot[col_actual_idx], rot[col_actual_idx + OUTPUT_W * OUTPUT_H]);
-    theta = -theta - 3.1415926 / 2;
-    block_boxes[threadIdx.x * 7 + 6] = theta;
-  }
-  __syncthreads();
-
-  if (threadIdx.x < row_size)
-  {
-    const int row_actual_idx = indexs[THREADS_PER_BLOCK_NMS * row_start + threadIdx.x];
-    const int cur_box_idx = THREADS_PER_BLOCK_NMS * row_start + threadIdx.x;
-    const int xIdx = row_actual_idx % OUTPUT_W;
-    const int yIdx = row_actual_idx / OUTPUT_W;
-
-    // encode boxs according kitti  format : (N, 7) [x, y, z, dy, dx, dz, heading]
-    float cur_box[7];
-    cur_box[0] = (reg[row_actual_idx] + xIdx) * OUT_SIZE_FACTOR * X_STEP + X_MIN;
-    cur_box[1] = (reg[OUTPUT_H * OUTPUT_W + row_actual_idx] + yIdx) * OUT_SIZE_FACTOR * Y_STEP + Y_MIN;
-    cur_box[2] = height[row_actual_idx];
-    cur_box[4] = dim[row_actual_idx];
-    cur_box[3] = dim[row_actual_idx + OUTPUT_W * OUTPUT_H];
-    cur_box[5] = dim[row_actual_idx + OUTPUT_W * OUTPUT_H * 2];
-    float theta = atan2f(rot[row_actual_idx], rot[row_actual_idx + OUTPUT_W * OUTPUT_H]);
-    theta = -theta - 3.1415926 / 2;
-    cur_box[6] = theta;
-
-    // const float *cur_box = boxes + cur_box_idx * 7;
-
-    int i = 0;
-    unsigned long long t = 0;
-    int start = 0;
-    if (row_start == col_start)
-    {
-      start = threadIdx.x + 1;
-    }
-    for (i = start; i < col_size; i++)
-    {
-      if (iou_bev(cur_box, block_boxes + i * 7) > nms_overlap_thresh)
-      {
-        t |= 1ULL << i;
-      }
-    }
-
-    const int col_blocks = DIVUP(boxes_num, THREADS_PER_BLOCK_NMS);
-    // assume cur_box_idx = 21, col_start = 0, row_start = 0 , threadIdx = 21, mark 21 th box and top 64 boxes
-    mask[cur_box_idx * col_blocks + col_start] = t;
-  }
-}
-
 __device__ inline float iou_normal(float const *const a, float const *const b)
 {
   // params: a: [x, y, z, dx, dy, dz, heading]
@@ -576,10 +452,10 @@ __global__ void findValidScoreNumKernel_(float *score, float *thre, float *N)
     atomicAdd(N, 1.0);
 }
 
-int findValidScoreNum(float *score, float thre, int output_h, int output_w)
+int findValidScoreNum(float *score, float thre, int num_anchor)
 {
   // thrust::device_vector<float> score_vec(score,score + output_h * output_w);
-  return thrust::count_if(thrust::device, score, score + output_h * output_w, is_greater(thre));
+  return thrust::count_if(thrust::device, score, score + num_anchor - 1, is_greater(thre));
   // return thrust::count_if(thrust::device, score_vec.begin(),score_vec.end(),is_greater(thre));
 }
 
@@ -609,56 +485,6 @@ void sort_by_key(float *keys, int *values, int size)
   thrust::sequence(thrust::device, values, values + size);
   // size = OUTPUT_H * OUTPUT_W;
   thrust::sort_by_key(thrust::device, keys, keys + size, values, thrust::greater<float>());
-}
-
-void gather_all(float *host_boxes, int *host_label,
-                float *reg, float *height, float *dim, float *rot, float *sorted_score, int32_t *label,
-                int *dev_indexs, long *host_keep_indexs, int boxSizeBef, int boxSizeAft)
-{
-
-  // copy keep_indexs from host to device
-  // int* tmp_keep_indexs = static_cast<int*>(host_keep_indexs);
-  thrust::device_vector<long> dev_keep_indexs(host_keep_indexs, host_keep_indexs + boxSizeAft);
-  // thrust::host_vector<long> host_keep_indexs_vec(host_keep_indexs,host_keep_indexs+boxSizeAft);
-  // // thrust::copy(host_keep_indexs,host_keep_indexs+boxSizeAft, dev_keep_indexs.begin());
-  // thrust::copy(host_keep_indexs_vec.begin(), host_keep_indexs_vec.end(), dev_keep_indexs.begin());
-  // gather keeped indexs after nms
-  thrust::device_vector<int> dev_indexs_bef(dev_indexs, dev_indexs + boxSizeBef);
-  thrust::device_vector<int> dev_indexs_aft(boxSizeAft);
-  thrust::gather(dev_keep_indexs.begin(), dev_keep_indexs.end(),
-                 dev_indexs_bef.begin(),
-                 dev_indexs_aft.begin());
-  // gather boxes, score, label
-  thrust::device_vector<float> tmp_boxes(boxSizeAft * 9);
-  thrust::device_vector<int> tmp_label(boxSizeAft);
-  // gather x, y
-  thrust::device_vector<float> reg_vec(reg, reg + OUTPUT_H * OUTPUT_W * 2);
-  thrust::gather(dev_indexs_aft.begin(), dev_indexs_aft.end(), reg_vec.begin(), tmp_boxes.begin());
-  thrust::gather(dev_indexs_aft.begin(), dev_indexs_aft.end(), reg_vec.begin() + OUTPUT_W * OUTPUT_H, tmp_boxes.begin() + boxSizeAft);
-  // gather height
-  thrust::device_vector<float> height_vec(height, height + OUTPUT_H * OUTPUT_W);
-  thrust::gather(dev_indexs_aft.begin(), dev_indexs_aft.end(), height_vec.begin(), tmp_boxes.begin() + 2 * boxSizeAft);
-  // gather  dim
-  thrust::device_vector<float> dim_vec(dim, dim + 3 * OUTPUT_H * OUTPUT_W);
-  thrust::gather(dev_indexs_aft.begin(), dev_indexs_aft.end(), dim_vec.begin() + OUTPUT_W * OUTPUT_H * 0, tmp_boxes.begin() + 3 * boxSizeAft);
-  thrust::gather(dev_indexs_aft.begin(), dev_indexs_aft.end(), dim_vec.begin() + OUTPUT_W * OUTPUT_H * 1, tmp_boxes.begin() + 4 * boxSizeAft);
-  thrust::gather(dev_indexs_aft.begin(), dev_indexs_aft.end(), dim_vec.begin() + OUTPUT_W * OUTPUT_H * 2, tmp_boxes.begin() + 5 * boxSizeAft);
-  // gather rotation
-  thrust::device_vector<float> rot_vec(rot, rot + 2 * OUTPUT_H * OUTPUT_W);
-  thrust::gather(dev_indexs_aft.begin(), dev_indexs_aft.end(), rot_vec.begin() + OUTPUT_W * OUTPUT_H * 0, tmp_boxes.begin() + 6 * boxSizeAft);
-  thrust::gather(dev_indexs_aft.begin(), dev_indexs_aft.end(), rot_vec.begin() + OUTPUT_W * OUTPUT_H * 1, tmp_boxes.begin() + 7 * boxSizeAft);
-  // gather score
-  thrust::device_vector<float> sorted_score_vec(sorted_score, sorted_score + 1 * OUTPUT_H * OUTPUT_W);
-  thrust::gather(dev_keep_indexs.begin(), dev_keep_indexs.end(), sorted_score_vec.begin() + OUTPUT_W * OUTPUT_H * 0, tmp_boxes.begin() + 8 * boxSizeAft);
-  // gather label
-  thrust::device_vector<int> label_vec(label, label + 1 * OUTPUT_H * OUTPUT_W);
-  thrust::gather(dev_indexs_aft.begin(), dev_indexs_aft.end(), label_vec.begin() + OUTPUT_W * OUTPUT_H * 0, tmp_label.begin());
-
-  // copy values from device => host
-  // host_boxes = tmp_boxes;
-  // host_label = tmp_label;
-  thrust::copy(tmp_boxes.begin(), tmp_boxes.end(), host_boxes);
-  thrust::copy(tmp_label.begin(), tmp_label.end(), host_label);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////END//////////////////////////////////////////////////////////////////////////////////////////
@@ -756,17 +582,7 @@ void nmsNormalLauncher(const float *boxes, unsigned long long *mask, int boxes_n
   nms_normal_kernel<<<blocks, threads>>>(boxes_num, nms_overlap_thresh, boxes, mask);
 }
 
-void rawNmsLauncher(const float *reg, const float *height, const float *dim, const float *rot, const int *indexs, unsigned long long *mask, int boxes_num, float nms_overlap_thresh)
-{
-  dim3 blocks(DIVUP(boxes_num, THREADS_PER_BLOCK_NMS),
-              DIVUP(boxes_num, THREADS_PER_BLOCK_NMS));
-  dim3 threads(THREADS_PER_BLOCK_NMS);
-  raw_nms_kernel<<<blocks, threads>>>(boxes_num, nms_overlap_thresh, reg, height, dim, rot, indexs, mask);
-}
-
-int rawNmsGpu(const float *reg, const float *height, const float *dim, const float *rot,
-              const int *indexs, long *host_keep_data, unsigned long long *mask_cpu, unsigned long long *remv_cpu,
-              int boxes_num, float nms_overlap_thresh)
+int nms_gpu(const float *boxes_data, long *keep_data, int boxes_num, float nms_overlap_thresh)
 {
   // params boxes: (N, 7) [x, y, z, dx, dy, dz, heading]
   // params keep: (N)
@@ -774,28 +590,25 @@ int rawNmsGpu(const float *reg, const float *height, const float *dim, const flo
   // int boxes_num = boxes.size(0);
   // const float * boxes_data = boxes.data<float>();
   // long * keep_data = keep.data<long>();
-
   const int col_blocks = DIVUP(boxes_num, THREADS_PER_BLOCK_NMS);
 
   unsigned long long *mask_data = NULL;
-  cudaMalloc((void **)&mask_data, boxes_num * col_blocks * sizeof(unsigned long long));
-  rawNmsLauncher(reg, height, dim, rot, indexs, mask_data, boxes_num, nms_overlap_thresh);
+  GPU_CHECK(cudaMalloc((void **)&mask_data, boxes_num * col_blocks * sizeof(unsigned long long)));
+  nmsLauncher(boxes_data, mask_data, boxes_num, nms_overlap_thresh);
 
   // unsigned long long mask_cpu[boxes_num * col_blocks];
   // unsigned long long *mask_cpu = new unsigned long long [boxes_num * col_blocks];
-  // std::vector<unsigned long long> mask_cpu(boxes_num * col_blocks);
+  std::vector<unsigned long long> mask_cpu(boxes_num * col_blocks);
 
   //    printf("boxes_num=%d, col_blocks=%d\n", boxes_num, col_blocks);
-  cudaMemcpy(mask_cpu, mask_data, boxes_num * col_blocks * sizeof(unsigned long long),
-             cudaMemcpyDeviceToHost);
+  GPU_CHECK(cudaMemcpy(&mask_cpu[0], mask_data, boxes_num * col_blocks * sizeof(unsigned long long),
+                       cudaMemcpyDeviceToHost));
 
-  // TODO : CUT HERE ! ! !
   cudaFree(mask_data);
 
-  // unsigned long long remv_cpu[col_blocks];
-  // memset(remv_cpu, 0, col_blocks * sizeof(unsigned long long));
-
+  unsigned long long remv_cpu[col_blocks];
   memset(remv_cpu, 0, col_blocks * sizeof(unsigned long long));
+
   int num_to_keep = 0;
 
   for (int i = 0; i < boxes_num; i++)
@@ -805,15 +618,17 @@ int rawNmsGpu(const float *reg, const float *height, const float *dim, const flo
 
     if (!(remv_cpu[nblock] & (1ULL << inblock)))
     {
-      host_keep_data[num_to_keep++] = i;
+      keep_data[num_to_keep++] = i;
+      unsigned long long *p = &mask_cpu[0] + i * col_blocks;
       for (int j = nblock; j < col_blocks; j++)
       {
-        remv_cpu[j] |= mask_cpu[i * col_blocks + j];
+        remv_cpu[j] |= p[j];
       }
     }
   }
 
   if (cudaSuccess != cudaGetLastError())
     printf("Error!\n");
+
   return num_to_keep;
 }

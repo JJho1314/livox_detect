@@ -38,8 +38,9 @@
 
 void inference()
 {
+    std::string data_path = "/home/jjho/code/my_project/livox_detect/data/livox.pcd";
     pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud(new pcl::PointCloud<pcl::PointXYZ>);
-    if (pcl::io::loadPCDFile<pcl::PointXYZ>("livox.pcd", *input_cloud) == -1)
+    if (pcl::io::loadPCDFile<pcl::PointXYZ>(data_path, *input_cloud) == -1)
     {
         std::cerr << "open failed!" << std::endl;
     }

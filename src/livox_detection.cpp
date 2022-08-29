@@ -39,6 +39,9 @@
 
 #define checkRuntime(op) __check_cuda_runtime((op), #op, __FILE__, __LINE__)
 
+std::string ONNX_Path = "/home/jjho/code/my_project/livox_detect/models/livox_detection_sim.onnx";
+std::string engine_Path = "/home/jjho/code/my_project/livox_detect/models/livox_detection_sim.engine";
+
 bool __check_cuda_runtime(cudaError_t code, const char *op, const char *file, int line)
 {
     if (code != cudaSuccess)
@@ -94,7 +97,7 @@ std::vector<unsigned char> load_file(const std::string &file)
 // 上一节的代码
 bool build_model()
 {
-    if (exists("livox_detection_sim.engine"))
+    if (exists(engine_Path.c_str()))
     {
         printf("Engine file has exists.\n");
         return true;
@@ -109,7 +112,7 @@ bool build_model()
 
     // 通过onnxparser解析器解析的结果会填充到network中，类似addConv的方式添加进去
     auto parser = make_nvshared(nvonnxparser::createParser(*network, logger));
-    if (!parser->parseFromFile("livox_detection_sim.onnx", 1))
+    if (!parser->parseFromFile(ONNX_Path.c_str(), 1))
     {
         printf("Failed to parse onnx\n");
 
@@ -143,7 +146,7 @@ bool build_model()
 
     // 将模型序列化，并储存为文件
     auto model_data = make_nvshared(engine->serialize());
-    FILE *f = fopen("livox_detection_sim.engine", "wb");
+    FILE *f = fopen(engine_Path.c_str(), "wb");
     fwrite(model_data->data(), 1, model_data->size(), f);
     fclose(f);
 
@@ -226,10 +229,51 @@ void livox_detection::preprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_p
     std::cout << "livox detect preprocess finish" << std::endl;
 }
 
+void livox_detection::postprocess(const float *rpn_all_output, std::vector<Box> &predResult)
+{
+    PostprocessCuda postprococess(NUM_ANCHOR, NUM_CLASS_, NUM_OUTPUT_BOX_FEATURE, score_thresh);
+
+    checkRuntime(cudaMallocHost(&dev_filtered_box_, NUM_ANCHOR_ * NUM_OUTPUT_BOX_FEATURE * sizeof(float)));
+    checkRuntime(cudaMallocHost(&dev_filtered_score_, NUM_ANCHOR_ * sizeof(float)));
+    checkRuntime(cudaMallocHost(&dev_filtered_label_, NUM_ANCHOR_ * sizeof(int)));
+    checkRuntime(cudaMallocHost(&dev_keep_data_, NUM_ANCHOR_ * sizeof(long)));
+
+    dev_filter_count_ = 0;
+    for (int i = 0; i < NUM_ANCHOR_; i++)
+    {
+        float box_px = rpn_all_output[i * 9 + 0];
+        float box_py = rpn_all_output[i * 9 + 1];
+        float box_pz = rpn_all_output[i * 9 + 2];
+        float box_dx = rpn_all_output[i * 9 + 3];
+        float box_dy = rpn_all_output[i * 9 + 4];
+        float box_dz = rpn_all_output[i * 9 + 5];
+        float box_theta = rpn_all_output[i * 9 + 6];
+        float box_score = rpn_all_output[i * 9 + 7];
+        int box_cls = rpn_all_output[i * 9 + 8];
+
+        // if (box_px > 0 && box_px < 224 && box_py > -44.8 && box_py < 44.8 && box_pz > -2 && box_pz < 4 && box_score > score_thresh_[box_cls])
+        // {
+        dev_filtered_box_[dev_filter_count_ * NUM_OUTPUT_BOX_FEATURE + 0] = box_px;
+        dev_filtered_box_[dev_filter_count_ * NUM_OUTPUT_BOX_FEATURE + 1] = box_py;
+        dev_filtered_box_[dev_filter_count_ * NUM_OUTPUT_BOX_FEATURE + 2] = box_pz;
+        dev_filtered_box_[dev_filter_count_ * NUM_OUTPUT_BOX_FEATURE + 3] = box_dx;
+        dev_filtered_box_[dev_filter_count_ * NUM_OUTPUT_BOX_FEATURE + 4] = box_dy;
+        dev_filtered_box_[dev_filter_count_ * NUM_OUTPUT_BOX_FEATURE + 5] = box_dz;
+        dev_filtered_box_[dev_filter_count_ * NUM_OUTPUT_BOX_FEATURE + 6] = box_theta;
+
+        dev_filtered_score_[dev_filter_count_] = box_score;
+        dev_filtered_label_[dev_filter_count_] = box_cls;
+
+        dev_filter_count_++;
+    }
+
+    postprococess.doPostprocessCuda(rpn_all_output, dev_filtered_box_, dev_filtered_score_, dev_filtered_label_, dev_filter_count_, dev_keep_data_, predResult);
+}
+
 void livox_detection::doprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pcl_pc_ptr)
 {
     TRTLogger logger;
-    auto engine_data = load_file("livox_detection_sim.engine");
+    auto engine_data = load_file(engine_Path.c_str());
     auto runtime = make_nvshared(nvinfer1::createInferRuntime(logger));
     auto engine = make_nvshared(runtime->deserializeCudaEngine(engine_data.data(), engine_data.size()));
     if (engine == nullptr)
@@ -289,46 +333,48 @@ void livox_detection::doprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pc
     checkRuntime(cudaMemcpyAsync(output_data_host, output_data_device, OUTPUT_SIZE * sizeof(float), cudaMemcpyDeviceToHost, stream));
     checkRuntime(cudaStreamSynchronize(stream));
 
-    checkRuntime(cudaStreamDestroy(stream));
-
     clock_t end = clock();
+    printf("Total time: %lf s \n", (double)(end - start) / CLOCKS_PER_SEC);
 
     std::vector<Box> Box_Vehicle;
-    std::vector<Box> Box_Pedestrian_before;
-    std::vector<Box> Box_Cyclist_before;
 
-    for (int i = 0; i < 500; i++)
-    {
-        float *ptr = output_data_host + i * 9;
-        Box box;
-        box.x = ptr[0];
-        box.y = ptr[1];
-        box.z = ptr[2];
-        box.dx = ptr[3];
-        box.dy = ptr[4];
-        box.dz = ptr[5];
-        box.theta = ptr[6];
-        box.score = ptr[7];
-        box.cls = ptr[8];
+    postprocess(output_data_host, Box_Vehicle);
 
-        if (box.x > cloud_x_min && box.x < cloud_x_max && box.y > cloud_y_min && box.y < cloud_y_max && box.z > cloud_z_min && box.z < cloud_z_max && box.score > score_thresh[box.cls])
-        {
-            if (box.cls == 0)
-            {
-                Box_Vehicle.push_back(box);
-            }
-            else if (box.cls == 1)
-            {
-                Box_Pedestrian_before.push_back(box);
-            }
-            else if (box.cls == 2)
-            {
-                Box_Cyclist_before.push_back(box);
-            }
-        }
-    }
+    // std::vector<Box> Box_Vehicle;
+    // std::vector<Box> Box_Pedestrian_before;
+    // std::vector<Box> Box_Cyclist_before;
 
-    printf("Total time: %lf s \n", (double)(end - start) / CLOCKS_PER_SEC);
+    // for (int i = 0; i < 500; i++)
+    // {
+    //     float *ptr = output_data_host + i * 9;
+    //     Box box;
+    //     box.x = ptr[0];
+    //     box.y = ptr[1];
+    //     box.z = ptr[2];
+    //     box.dx = ptr[3];
+    //     box.dy = ptr[4];
+    //     box.dz = ptr[5];
+    //     box.theta = ptr[6];
+    //     box.score = ptr[7];
+    //     box.cls = ptr[8];
+
+    //     if (box.x > cloud_x_min && box.x < cloud_x_max && box.y > cloud_y_min && box.y < cloud_y_max && box.z > cloud_z_min && box.z < cloud_z_max && box.score > score_thresh[box.cls])
+    //     {
+    //         if (box.cls == 0)
+    //         {
+    //             Box_Vehicle.push_back(box);
+    //         }
+    //         else if (box.cls == 1)
+    //         {
+    //             Box_Pedestrian_before.push_back(box);
+    //         }
+    //         else if (box.cls == 2)
+    //         {
+    //             Box_Cyclist_before.push_back(box);
+    //         }
+    //     }
+    // }
+    checkRuntime(cudaStreamDestroy(stream));
 
     std::cout << "livox detect infer finish" << std::endl;
 
@@ -362,10 +408,6 @@ void livox_detection::doprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pc
         viewer->spinOnce(100);
         boost::this_thread::sleep(boost::posix_time::microseconds(100000));
     }
-}
-
-void livox_detection::postprocess(const float *in_points_array)
-{
 }
 
 livox_detection::~livox_detection()

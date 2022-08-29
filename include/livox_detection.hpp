@@ -4,24 +4,12 @@
 #include <iostream>
 // 推理用的运行时头文件
 #include <NvInferRuntime.h>
-#include <eigen3/Eigen/Core>
+
 #include <pcl/common/common.h>
 
-bool build_model();
+#include "postprocess_cuda.h"
 
-struct Box
-{
-    float x;
-    float y;
-    float z;
-    float dx;
-    float dy;
-    float dz;
-    float theta;
-    float score;
-    int cls;
-    bool isDrop; // for nms
-};
+bool build_model();
 
 class TRTLogger : public nvinfer1::ILogger
 {
@@ -86,7 +74,7 @@ public:
 
     void doprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pcl_pc_ptr);
 
-    void postprocess(const float *in_points_array);
+    void postprocess(const float *rpn_all_output, std::vector<Box> &predResult);
 
     int BEV_W = 1120;
     int BEV_H = 448;
@@ -101,23 +89,15 @@ private:
 
     pcl::PointCloud<pcl::PointXYZ> input_cloud_;
 
-    float kNormalizingIntensityValue = 255.0f;
-    float offset_ground = 1.8;
-    float cloud_x_min = 0;
-    float cloud_x_max = 224;
-    float cloud_y_min = -44.8;
-    float cloud_y_max = 44.8;
-    float cloud_z_min = -2;
-    float cloud_z_max = 4;
-    float voxel_size[3] = {0.2, 0.2, 0.2};
+    const int OUTPUT_SIZE = 1 * 9 * 500;
+    float *dev_filtered_box_;
+    float *dev_filtered_score_;
+    int *dev_filtered_label_;
+    int dev_filter_count_;
+    long *dev_keep_data_;
     float point_cloud_range[6] = {0, -44.8, -2, 224, 44.8, 4};
     float score_thresh[3] = {0.2, 0.3, 0.3};
-    const int NUM_CLASS_ = 3;
-    const int ANCHOR_SIZE = 11;
-    // const int OUTPUT_SIZE = 1 * 11 * 448 * 1120;
-    const int OUTPUT_SIZE = 1 * 9 * 500;
-
-    void *head_buffers_[3];
+    float voxel_size[3] = {0.2, 0.2, 0.2};
 };
 
 #endif

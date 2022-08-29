@@ -8,7 +8,7 @@ set(USE_CUDA ON)
 option(CUDA_AVAIL "CUDA available" OFF)
 find_package(CUDA REQUIRED)
 find_package(Eigen3 REQUIRED)
-find_package(PCL 1.8 REQUIRED)
+find_package(PCL 1.9 REQUIRED)
 # find_package(autoware_build_flags REQUIRED)
 
 # AW_CHECK_CUDA()
@@ -89,19 +89,14 @@ if(TRT_AVAIL AND CUDA_AVAIL AND CUDNN_AVAIL)
     ${SOURCE_FILES}
   )
 
-#   cuda_add_library(gpu_point_pillars_lib
-#     nodes/preprocess_points_cuda.cu
-#     nodes/anchor_mask_cuda.cu
-#     nodes/scatter_cuda.cu
-#     nodes/postprocess_cuda.cu
-#     nodes/nms_cuda.cu
-#     nodes/pfe_cuda.cu
-#     nodes/postprocess_center_cuda.cu
-#   )
+  cuda_add_library(gpu_livox_detection_lib
+    src/postprocess_cuda.cu
+    src/iou3d_nms_kernel.cu
+  )
 
-#   target_link_libraries(gpu_point_pillars_lib
-#     ${CUDA_LIBRARIES}
-#   )
+  target_link_libraries(gpu_livox_detection_lib
+    ${CUDA_LIBRARIES}
+  )
 
   target_link_libraries(livox_detection
     ${NVINFER}
@@ -112,6 +107,7 @@ if(TRT_AVAIL AND CUDA_AVAIL AND CUDNN_AVAIL)
     ${CUDNN_LIBRARY}
     ${Eigen3_LIBRARIES}
     ${PCL_LIBRARIES}
+    gpu_livox_detection_lib
   )
 
 
