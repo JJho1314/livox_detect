@@ -32,13 +32,12 @@ private:
     const int num_anchor_;
     const int num_class_;
     const int NUM_OUTPUT_BOX_FEATURE_;
-    float score_thresh_[3];
+    float score_thresh[3] = {0.2, 0.3, 0.3};
 
 public:
     PostprocessCuda(const int num_anchor,
                     const int num_class,
-                    const int num_output_box_feature,
-                    float *score_thresh);
+                    const int num_output_box_feature);
 
     void doPostprocessCuda(const float *rpn_all_output, float *dev_filtered_box, float *dev_filtered_score, int *dev_filter_label, int &dev_filter_count, long *dev_keep_data, std::vector<Box> &predResult);
 };

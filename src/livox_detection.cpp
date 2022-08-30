@@ -157,9 +157,6 @@ bool build_model()
 
 livox_detection::livox_detection()
 {
-    // checkRuntime(cudaMalloc(&head_buffers_[0], PRE_BOX_SIZE * sizeof(float)));
-    // checkRuntime(cudaMalloc(&head_buffers_[1], PRE_SCORES_SIZE * sizeof(float)));
-    // checkRuntime(cudaMalloc(&head_buffers_[2], PRED_LABELS_SIZE * sizeof(float)));
 }
 
 inline void livox_detection::point_filter(pcl::PointCloud<pcl::PointXYZ>::Ptr &cloud, const int min, const int max, std::string axis, bool setFilterLimitsNegative)
@@ -231,7 +228,7 @@ void livox_detection::preprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_p
 
 void livox_detection::postprocess(const float *rpn_all_output, std::vector<Box> &predResult)
 {
-    PostprocessCuda postprococess(NUM_ANCHOR, NUM_CLASS_, NUM_OUTPUT_BOX_FEATURE, score_thresh);
+    PostprocessCuda postprococess(NUM_ANCHOR, NUM_CLASS_, NUM_OUTPUT_BOX_FEATURE);
 
     checkRuntime(cudaMallocHost(&dev_filtered_box_, NUM_ANCHOR_ * NUM_OUTPUT_BOX_FEATURE * sizeof(float)));
     checkRuntime(cudaMallocHost(&dev_filtered_score_, NUM_ANCHOR_ * sizeof(float)));
@@ -251,8 +248,6 @@ void livox_detection::postprocess(const float *rpn_all_output, std::vector<Box> 
         float box_score = rpn_all_output[i * 9 + 7];
         int box_cls = rpn_all_output[i * 9 + 8];
 
-        // if (box_px > 0 && box_px < 224 && box_py > -44.8 && box_py < 44.8 && box_pz > -2 && box_pz < 4 && box_score > score_thresh_[box_cls])
-        // {
         dev_filtered_box_[dev_filter_count_ * NUM_OUTPUT_BOX_FEATURE + 0] = box_px;
         dev_filtered_box_[dev_filter_count_ * NUM_OUTPUT_BOX_FEATURE + 1] = box_py;
         dev_filtered_box_[dev_filter_count_ * NUM_OUTPUT_BOX_FEATURE + 2] = box_pz;
@@ -268,6 +263,10 @@ void livox_detection::postprocess(const float *rpn_all_output, std::vector<Box> 
     }
 
     postprococess.doPostprocessCuda(rpn_all_output, dev_filtered_box_, dev_filtered_score_, dev_filtered_label_, dev_filter_count_, dev_keep_data_, predResult);
+    checkRuntime(cudaFreeHost(dev_filtered_box_));
+    checkRuntime(cudaFreeHost(dev_filtered_score_));
+    checkRuntime(cudaFreeHost(dev_filtered_label_));
+    checkRuntime(cudaFreeHost(dev_keep_data_));
 }
 
 void livox_detection::doprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pcl_pc_ptr)
@@ -292,23 +291,14 @@ void livox_detection::doprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pc
     float *input_data_host;
     float *input_data_device;
 
-    float *points_array = new float[input_numel];
-
-    for (int i = 0; i < input_numel; i++)
-    {
-        points_array[i] = 0;
-    }
-
     pcl::PointCloud<pcl::PointXYZ>::Ptr transformed_cloud_ptr(new pcl::PointCloud<pcl::PointXYZ>);
-
-    preprocess(in_pcl_pc_ptr, transformed_cloud_ptr, points_array);
 
     checkRuntime(cudaMallocHost(&input_data_host, input_numel * sizeof(float)));
     checkRuntime(cudaMalloc(&input_data_device, input_numel * sizeof(float)));
 
-    input_data_host = points_array;
-
     clock_t start = clock();
+
+    preprocess(in_pcl_pc_ptr, transformed_cloud_ptr, input_data_host);
 
     ///////////////////////////////////////////////////
     // image to float
@@ -340,46 +330,11 @@ void livox_detection::doprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pc
 
     postprocess(output_data_host, Box_Vehicle);
 
-    // std::vector<Box> Box_Vehicle;
-    // std::vector<Box> Box_Pedestrian_before;
-    // std::vector<Box> Box_Cyclist_before;
-
-    // for (int i = 0; i < 500; i++)
-    // {
-    //     float *ptr = output_data_host + i * 9;
-    //     Box box;
-    //     box.x = ptr[0];
-    //     box.y = ptr[1];
-    //     box.z = ptr[2];
-    //     box.dx = ptr[3];
-    //     box.dy = ptr[4];
-    //     box.dz = ptr[5];
-    //     box.theta = ptr[6];
-    //     box.score = ptr[7];
-    //     box.cls = ptr[8];
-
-    //     if (box.x > cloud_x_min && box.x < cloud_x_max && box.y > cloud_y_min && box.y < cloud_y_max && box.z > cloud_z_min && box.z < cloud_z_max && box.score > score_thresh[box.cls])
-    //     {
-    //         if (box.cls == 0)
-    //         {
-    //             Box_Vehicle.push_back(box);
-    //         }
-    //         else if (box.cls == 1)
-    //         {
-    //             Box_Pedestrian_before.push_back(box);
-    //         }
-    //         else if (box.cls == 2)
-    //         {
-    //             Box_Cyclist_before.push_back(box);
-    //         }
-    //     }
-    // }
-    checkRuntime(cudaStreamDestroy(stream));
+        checkRuntime(cudaStreamDestroy(stream));
 
     std::cout << "livox detect infer finish" << std::endl;
 
-    delete[] points_array;
-    // checkRuntime(cudaFreeHost(input_data_host));
+    checkRuntime(cudaFreeHost(input_data_host));
     checkRuntime(cudaFreeHost(output_data_host));
     checkRuntime(cudaFree(input_data_device));
     checkRuntime(cudaFree(output_data_device));

@@ -47,13 +47,12 @@ __global__ void filter_kernel(const float *rpn_all_output, float *filtered_box, 
 
 PostprocessCuda::PostprocessCuda(const int num_anchor,
                                  const int num_class,
-                                 const int num_output_box_feature,
-                                 float *score_thresh) : num_anchor_(num_anchor), num_class_(num_class), NUM_OUTPUT_BOX_FEATURE_(num_output_box_feature)
+                                 const int num_output_box_feature) : num_anchor_(num_anchor), num_class_(num_class), NUM_OUTPUT_BOX_FEATURE_(num_output_box_feature)
 {
     // GPU_CHECK(cudaMalloc(&score_thresh_, 3 * sizeof(float)));
-    score_thresh_[0] = score_thresh[0];
-    score_thresh_[1] = score_thresh[1];
-    score_thresh_[2] = score_thresh[2];
+    // score_thresh_[0] = score_thresh[0];
+    // score_thresh_[1] = score_thresh[1];
+    // score_thresh_[2] = score_thresh[2];
 }
 
 void PostprocessCuda::doPostprocessCuda(const float *rpn_all_output, float *dev_filtered_box, float *dev_filtered_score, int *dev_filter_label, int &dev_filter_count, long *dev_keep_data, std::vector<Box> &predResult)
@@ -87,6 +86,10 @@ void PostprocessCuda::doPostprocessCuda(const float *rpn_all_output, float *dev_
         box.theta = dev_filtered_box[idx * NUM_OUTPUT_BOX_FEATURE_ + 6];
         box.score = dev_filtered_score[idx];
         box.cls = dev_filter_label[idx];
-        predResult.push_back(box);
+
+        if (box.x > cloud_x_min && box.x < cloud_x_max && box.y > cloud_y_min && box.y < cloud_y_max && box.z > cloud_z_min && box.z < cloud_z_max && box.score > score_thresh[box.cls])
+        {
+            predResult.push_back(box);
+        }
     }
 }

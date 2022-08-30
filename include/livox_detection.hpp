@@ -96,7 +96,6 @@ private:
     int dev_filter_count_;
     long *dev_keep_data_;
     float point_cloud_range[6] = {0, -44.8, -2, 224, 44.8, 4};
-    float score_thresh[3] = {0.2, 0.3, 0.3};
     float voxel_size[3] = {0.2, 0.2, 0.2};
 };
 
