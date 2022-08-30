@@ -14,8 +14,8 @@ find_package(PCL 1.9 REQUIRED)
 # AW_CHECK_CUDA()
 # include and link dirs of cuda and tensorrt, you need adapt them if yours are different
 # cuda
-# include_directories(/usr/local/cuda-10.2/include)
-# link_directories(/usr/local/cuda-10.2/lib64)
+include_directories(/usr/local/cuda-10.2/include)
+link_directories(/usr/local/cuda-10.2/lib64)
 # # tensorrt
 # include_directories(/home/syang/Downloads/TensorRT-7.2.2.3/include/)
 # link_directories(/home/syang/Downloads/TensorRT-7.2.2.3/lib/)
@@ -33,9 +33,13 @@ endif ()
 # set flags for TensorRT availability
 option(TRT_AVAIL "TensorRT available" OFF)
 # try to find the tensorRT modules
-find_library(NVINFER NAMES nvinfer)
-find_library(NVPARSERS NAMES nvparsers)
-find_library(NVONNXPARSERS NAMES nvonnxparser)
+find_library(NVINFER libnvinfer.so /home/jjho/software/TensorRT-7.0.0.11/lib)
+find_library(NVPARSERS libnvparsers.so /home/jjho/software/TensorRT-7.0.0.11/lib)
+find_library(NVONNXPARSERS libnvonnxparser.so /home/jjho/software/TensorRT-7.0.0.11/lib)
+# try to find the tensorRT modules
+# find_library(NVINFER libnvinfer.so)
+# find_library(NVPARSERS libnvparsers.so)
+# find_library(NVONNXPARSERS libnvonnxparser.so)
 
 if(NVINFER AND NVPARSERS AND NVONNXPARSERS)
   message("TensorRT is available!")
@@ -52,10 +56,12 @@ endif()
 option(CUDNN_AVAIL "CUDNN available" OFF)
 # try to find the CUDNN module
 find_library(CUDNN_LIBRARY
-  NAMES libcudnn.so${__cudnn_ver_suffix} libcudnn${__cudnn_ver_suffix}.dylib ${__cudnn_lib_win_name}
-  PATHS $ENV{LD_LIBRARY_PATH} ${__libpath_cudart} ${CUDNN_ROOT_DIR} ${PC_CUDNN_LIBRARY_DIRS} ${CMAKE_INSTALL_PREFIX}
-  PATH_SUFFIXES lib lib64 bin
-  DOC "CUDNN library."
+  libcudnn.so libcudnn_static.a
+  # NAMES libcudnn.so${__cudnn_ver_suffix} libcudnn${__cudnn_ver_suffix}.dylib ${__cudnn_lib_win_name}
+  # PATHS $ENV{LD_LIBRARY_PATH} ${__libpath_cudart} ${CUDNN_ROOT_DIR} ${PC_CUDNN_LIBRARY_DIRS} ${CMAKE_INSTALL_PREFIX}
+  # PATH_SUFFIXES lib lib64 bin
+  # DOC "CUDNN library."
+  /usr/local/cuda-10.2/lib64
 )
 
 if(CUDNN_LIBRARY)
