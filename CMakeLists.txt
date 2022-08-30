@@ -17,8 +17,8 @@ find_package(PCL 1.9 REQUIRED)
 include_directories(/usr/local/cuda-10.2/include)
 link_directories(/usr/local/cuda-10.2/lib64)
 # # tensorrt
-# include_directories(/home/syang/Downloads/TensorRT-7.2.2.3/include/)
-# link_directories(/home/syang/Downloads/TensorRT-7.2.2.3/lib/)
+include_directories(/home/jjho/software/TensorRT-7.0.0.11/include/)
+link_directories(/home/jjho/software/TensorRT-7.0.0.11/lib/)
 
 if (USE_CUDA)
   message("CUDA is available!")

@@ -14,7 +14,7 @@ bool build_model();
 class TRTLogger : public nvinfer1::ILogger
 {
 public:
-    virtual void log(Severity severity, nvinfer1::AsciiChar const *msg) noexcept override
+    virtual void log(Severity severity, const char *msg) noexcept override
     {
         if (severity <= Severity::kINFO)
         {
