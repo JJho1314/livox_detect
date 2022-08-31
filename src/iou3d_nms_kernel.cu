@@ -459,26 +459,6 @@ int findValidScoreNum(float *score, float thre, int num_anchor)
   // return thrust::count_if(thrust::device, score_vec.begin(),score_vec.end(),is_greater(thre));
 }
 
-// int findValidScoreNum(float* score, float thre, int output_h, int output_w ) { //,  thrust::host_vector<int> host_box_size) {
-//     float box_size[1];
-//     float *box_size_;
-//     float* thre_;
-//     cudaMalloc((void**)&box_size_, 2*sizeof(float));
-//     cudaMemset(box_size_,0,sizeof(float));
-//     cudaMemset(box_size_+1,1,sizeof(float));
-//     cudaMalloc((void**)&thre_, sizeof(float));
-//     cudaMemset(thre_,0.1,sizeof(float));
-//     std::cout <<"using atomic add \n";
-//     findValidScoreNumKernel_<<<output_h,output_w >>>(score, thre_, box_size_);
-//     cudaMemcpy(box_size, box_size_, sizeof(float), cudaMemcpyDeviceToHost);
-//     std::cout << "valid score num " << box_size[0] << std::endl;
-//     cudaFree(box_size_);
-//     cudaFree(thre_);
-//     return 194;
-//     // thrust::device_vector<int> box_size_vec(box_size, box_size + 1);
-//     // thrust::copy(box_size_vec.begin(), box_size_vec.end(),host_box_size.begin());
-// }
-
 void sort_by_key(float *keys, int *values, int size)
 {
 

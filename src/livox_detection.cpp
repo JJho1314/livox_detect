@@ -330,7 +330,7 @@ void livox_detection::doprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pc
 
     postprocess(output_data_host, Box_Vehicle);
 
-        checkRuntime(cudaStreamDestroy(stream));
+    checkRuntime(cudaStreamDestroy(stream));
 
     std::cout << "livox detect infer finish" << std::endl;
 

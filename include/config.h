@@ -13,7 +13,7 @@
 #define PI 3.141592653f
 
 // paramerters for postprocess
-#define SCORE_THREAHOLD 0.3f
+#define SCORE_THREAHOLD 0.2f
 #define NMS_THREAHOLD 0.3f
 #define INPUT_NMS_MAX_SIZE 4096
 #define OUTPUT_NMS_MAX_SIZE 500
