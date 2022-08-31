@@ -265,6 +265,15 @@ void livox_detection::doprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pc
 
     checkRuntime(cudaStreamDestroy(stream));
 
+    execution_context->destroy();
+    runtime->destroy();
+    engine->destroy();
+
+    checkRuntime(cudaFreeHost(input_data_host));
+    checkRuntime(cudaFreeHost(output_data_host));
+    checkRuntime(cudaFree(input_data_device));
+    checkRuntime(cudaFree(output_data_device));
+
     std::cout << "livox detect infer finish" << std::endl;
 }
 
@@ -545,6 +554,8 @@ void livox_detection::pointsCallback(const sensor_msgs::PointCloud2::ConstPtr &m
 
     std::vector<Box> pre_box;
     doprocess(out_pcl_pc_ptr, pre_box);
+    double end_time = ros::Time::now().toSec();
+    printf("deal this frame takes %f ms\n\n", (end_time - start_time) * 1000);
 
     pubDetectedObject_Marker(pre_box, msg->header);
 }
@@ -558,12 +569,4 @@ void livox_detection::createROSPubSub()
 
 livox_detection::~livox_detection()
 {
-    execution_context->destroy();
-    runtime->destroy();
-    engine->destroy();
-
-    checkRuntime(cudaFreeHost(input_data_host));
-    checkRuntime(cudaFreeHost(output_data_host));
-    checkRuntime(cudaFree(input_data_device));
-    checkRuntime(cudaFree(output_data_device));
 }
