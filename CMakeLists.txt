@@ -8,7 +8,7 @@ set(USE_CUDA ON)
 option(CUDA_AVAIL "CUDA available" OFF)
 find_package(CUDA REQUIRED)
 find_package(Eigen3 REQUIRED)
-find_package(PCL 1.9 REQUIRED)
+find_package(PCL REQUIRED)
 # find_package(autoware_build_flags REQUIRED)
 
 # AW_CHECK_CUDA()
