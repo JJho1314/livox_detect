@@ -1,5 +1,6 @@
 // 自己定义的头文件
 #include "livox_detection.hpp"
+#include "clip.h"
 
 // tensorRT include
 // 编译用的头文件
@@ -94,72 +95,28 @@ std::vector<unsigned char> load_file(const std::string &file)
     return data;
 }
 
-// 上一节的代码
-bool build_model()
+void livox_detection::initTRT()
 {
-    if (exists(engine_Path.c_str()))
-    {
-        printf("Engine file has exists.\n");
-        return true;
-    }
-
     TRTLogger logger;
-
-    // 这是基本需要的组件
-    auto builder = make_nvshared(nvinfer1::createInferBuilder(logger));
-    auto config = make_nvshared(builder->createBuilderConfig());
-    auto network = make_nvshared(builder->createNetworkV2(1));
-
-    // 通过onnxparser解析器解析的结果会填充到network中，类似addConv的方式添加进去
-    auto parser = make_nvshared(nvonnxparser::createParser(*network, logger));
-    if (!parser->parseFromFile(ONNX_Path.c_str(), 1))
-    {
-        printf("Failed to parse onnx\n");
-
-        // 注意这里的几个指针还没有释放，是有内存泄漏的，后面考虑更优雅的解决
-        return false;
-    }
-
-    int maxBatchSize = 1;
-    printf("Workspace Size = %.2f MB\n", (1 << 28) / 1024.0f / 1024.0f);
-    config->setMaxWorkspaceSize(1 << 28);
-
-    // 如果模型有多个输入，则必须多个profile
-    auto profile = builder->createOptimizationProfile();
-    auto input_tensor = network->getInput(0);
-    auto input_dims = input_tensor->getDimensions();
-
-    // 配置最小、最优、最大范围
-    input_dims.d[0] = 1;
-    profile->setDimensions(input_tensor->getName(), nvinfer1::OptProfileSelector::kMIN, input_dims);
-    profile->setDimensions(input_tensor->getName(), nvinfer1::OptProfileSelector::kOPT, input_dims);
-    input_dims.d[0] = maxBatchSize;
-    profile->setDimensions(input_tensor->getName(), nvinfer1::OptProfileSelector::kMAX, input_dims);
-    config->addOptimizationProfile(profile);
-
-    auto engine = make_nvshared(builder->buildEngineWithConfig(*network, *config));
+    engine_data = load_file(engine_Path.c_str());
+    runtime = nvinfer1::createInferRuntime(logger);
+    engine = runtime->deserializeCudaEngine(engine_data.data(), engine_data.size());
     if (engine == nullptr)
     {
-        printf("Build engine failed.\n");
-        return false;
+        printf("Deserialize cuda engine failed.\n");
+        runtime->destroy();
+        return;
     }
 
-    // 将模型序列化，并储存为文件
-    auto model_data = make_nvshared(engine->serialize());
-    FILE *f = fopen(engine_Path.c_str(), "wb");
-    fwrite(model_data->data(), 1, model_data->size(), f);
-    fclose(f);
-
-    // 卸载顺序按照构建顺序倒序
-    printf("Done.\n");
-    return true;
+    execution_context = (engine->createExecutionContext());
 }
 
-livox_detection::livox_detection()
+livox_detection::livox_detection() : private_nh_("~")
 {
+    initTRT();
 }
 
-inline void livox_detection::point_filter(pcl::PointCloud<pcl::PointXYZ>::Ptr &cloud, const int min, const int max, std::string axis, bool setFilterLimitsNegative)
+void livox_detection::point_filter(pcl::PointCloud<pcl::PointXYZ>::Ptr &cloud, const int min, const int max, std::string axis, bool setFilterLimitsNegative)
 {
     pcl::PassThrough<pcl::PointXYZ> filter;
     filter.setInputCloud(cloud);
@@ -202,7 +159,7 @@ void livox_detection::pclToArray(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_p
         pcl::PointXYZ point = in_pcl_pc_ptr->at(i);
         int pc_lidar_x = floor((point.x - cloud_x_min) / DX);
         int pc_lidar_y = floor((point.y - cloud_y_min) / DY);
-        int pc_lidar_z = floor((point.z - cloud_z_min) / DZ);
+        int pc_lidar_z = floor((point.z + -cloud_z_min) / DZ);
         out_points_array[BEV_W * BEV_H * pc_lidar_z + BEV_W * pc_lidar_y + pc_lidar_x] = 1;
     }
 }
@@ -210,8 +167,6 @@ void livox_detection::pclToArray(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_p
 void livox_detection::preprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pcl_pc_ptr, pcl::PointCloud<pcl::PointXYZ>::Ptr &out_pcl_pc_ptr, float *out_points_array)
 {
     std::cout << "livox detect preprocess start" << std::endl;
-
-    float theta = 0;
 
     Eigen::Affine3f transform = Eigen::Affine3f::Identity();
     transform.rotate(Eigen::AngleAxisf(theta, Eigen::Vector3f::UnitX())); //同理，UnitX(),绕X轴；UnitY(),绕Y轴
@@ -271,32 +226,13 @@ void livox_detection::postprocess(const float *rpn_all_output, std::vector<Box> 
 
 void livox_detection::doprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pcl_pc_ptr)
 {
-    TRTLogger logger;
-    auto engine_data = load_file(engine_Path.c_str());
-    auto runtime = make_nvshared(nvinfer1::createInferRuntime(logger));
-    auto engine = make_nvshared(runtime->deserializeCudaEngine(engine_data.data(), engine_data.size()));
-    if (engine == nullptr)
-    {
-        printf("Deserialize cuda engine failed.\n");
-        runtime->destroy();
-        return;
-    }
-
-    cudaStream_t stream = nullptr;
-    checkRuntime(cudaStreamCreate(&stream));
-    auto execution_context = make_nvshared(engine->createExecutionContext());
-
-    int input_batch = 1;
-    int input_numel = input_batch * BEV_C * BEV_H * BEV_W;
-    float *input_data_host;
-    float *input_data_device;
 
     pcl::PointCloud<pcl::PointXYZ>::Ptr transformed_cloud_ptr(new pcl::PointCloud<pcl::PointXYZ>);
 
     checkRuntime(cudaMallocHost(&input_data_host, input_numel * sizeof(float)));
     checkRuntime(cudaMalloc(&input_data_device, input_numel * sizeof(float)));
 
-    clock_t start = clock();
+    // clock_t start = clock();
 
     preprocess(in_pcl_pc_ptr, transformed_cloud_ptr, input_data_host);
 
@@ -304,11 +240,12 @@ void livox_detection::doprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pc
     // image to float
 
     ///////////////////////////////////////////////////
+
+    cudaStream_t stream = nullptr;
+    checkRuntime(cudaStreamCreate(&stream));
+
     checkRuntime(cudaMemcpyAsync(input_data_device, input_data_host, input_numel * sizeof(float), cudaMemcpyHostToDevice, stream));
 
-    // 3x3输入，对应3x3输出
-    float *output_data_host;
-    float *output_data_device;
     checkRuntime(cudaMallocHost(&output_data_host, OUTPUT_SIZE * sizeof(float)));
     checkRuntime(cudaMalloc(&output_data_device, OUTPUT_SIZE * sizeof(float)));
 
@@ -323,8 +260,8 @@ void livox_detection::doprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pc
     checkRuntime(cudaMemcpyAsync(output_data_host, output_data_device, OUTPUT_SIZE * sizeof(float), cudaMemcpyDeviceToHost, stream));
     checkRuntime(cudaStreamSynchronize(stream));
 
-    clock_t end = clock();
-    printf("Total time: %lf s \n", (double)(end - start) / CLOCKS_PER_SEC);
+    // clock_t end = clock();
+    // printf("Total time: %lf s \n", (double)(end - start) / CLOCKS_PER_SEC);
 
     std::vector<Box> Box_Vehicle;
 
@@ -334,37 +271,65 @@ void livox_detection::doprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pc
 
     std::cout << "livox detect infer finish" << std::endl;
 
-    checkRuntime(cudaFreeHost(input_data_host));
-    checkRuntime(cudaFreeHost(output_data_host));
-    checkRuntime(cudaFree(input_data_device));
-    checkRuntime(cudaFree(output_data_device));
+    // boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer(new pcl::visualization::PCLVisualizer("cloud"));
+    // viewer->addPointCloud<pcl::PointXYZ>(transformed_cloud_ptr, "sample cloud");
+    // viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "sample cloud");
+    // viewer->addCoordinateSystem(1.0);
+    // viewer->initCameraParameters();
 
-    boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer(new pcl::visualization::PCLVisualizer("cloud"));
-    viewer->addPointCloud<pcl::PointXYZ>(transformed_cloud_ptr, "sample cloud");
-    viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "sample cloud");
-    viewer->addCoordinateSystem(1.0);
-    viewer->initCameraParameters();
+    // viewer->setBackgroundColor(0, 0, 0);
 
-    viewer->setBackgroundColor(0, 0, 0);
+    // for (int i = 0; i < Box_Vehicle.size(); i++)
+    // {
+    //     std::string name = "Vehicle" + std::to_string(i);
+    //     viewer->addCube(float(Box_Vehicle[i].x) - Box_Vehicle[i].dx / 2, Box_Vehicle[i].x + Box_Vehicle[i].dx / 2, float(Box_Vehicle[i].y) - Box_Vehicle[i].dy / 2, Box_Vehicle[i].y + Box_Vehicle[i].dy / 2, float(Box_Vehicle[i].z) - Box_Vehicle[i].dz / 2, Box_Vehicle[i].z + Box_Vehicle[i].dz / 2, 1.0, 1.0, 1.0, name);
+    //     viewer->setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR, 1, 0, 0, name); //绿框
+    //     viewer->setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_REPRESENTATION, pcl::visualization::PCL_VISUALIZER_REPRESENTATION_WIREFRAME, name);
 
-    for (int i = 0; i < Box_Vehicle.size(); i++)
+    //     viewer->setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_OPACITY, 0.1, name);
+    //     viewer->setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 3, name);
+    // }
+
+    // while (!viewer->wasStopped())
+    // {
+    //     viewer->spinOnce(100);
+    //     boost::this_thread::sleep(boost::posix_time::microseconds(100000));
+    // }
+}
+
+void livox_detection::pointsCallback(const sensor_msgs::PointCloud2::ConstPtr &input)
+{
+    pcl::PointCloud<pcl::PointXYZI>::Ptr pcl_pc_ptr(new pcl::PointCloud<pcl::PointXYZI>);
+    pcl::fromROSMsg(*msg, *pcl_pc_ptr);
+    double start_time = ros::Time::now().toSec();
+
+    // 去除128中的nan点
+    pcl::PointCloud<pcl::PointXYZI>::Ptr filtered_cloud_ptr(new pcl::PointCloud<pcl::PointXYZI>);
+    for (size_t i = 0; i < pcl_pc_ptr->size(); i++)
     {
-        std::string name = "Vehicle" + std::to_string(i);
-        viewer->addCube(float(Box_Vehicle[i].x) - Box_Vehicle[i].dx / 2, Box_Vehicle[i].x + Box_Vehicle[i].dx / 2, float(Box_Vehicle[i].y) - Box_Vehicle[i].dy / 2, Box_Vehicle[i].y + Box_Vehicle[i].dy / 2, float(Box_Vehicle[i].z) - Box_Vehicle[i].dz / 2, Box_Vehicle[i].z + Box_Vehicle[i].dz / 2, 1.0, 1.0, 1.0, name);
-        viewer->setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR, 1, 0, 0, name); //绿框
-        viewer->setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_REPRESENTATION, pcl::visualization::PCL_VISUALIZER_REPRESENTATION_WIREFRAME, name);
-
-        viewer->setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_OPACITY, 0.1, name);
-        viewer->setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 3, name);
+        pcl::PointXYZI point = pcl_pc_ptr->at(i);
+        if (std::isnan(point.x) || std::isinf(point.x) || std::isnan(point.y) || std::isinf(point.y) ||
+            std::isnan(point.z) || std::isinf(point.z))
+        {
+            continue;
+        }
+        filtered_cloud_ptr->push_back(point);
     }
+    pcl_pc_ptr = filtered_cloud_ptr;
+}
 
-    while (!viewer->wasStopped())
-    {
-        viewer->spinOnce(100);
-        boost::this_thread::sleep(boost::posix_time::microseconds(100000));
-    }
+void livox_detection::createROSPubSub()
+{
 }
 
 livox_detection::~livox_detection()
 {
+    execution_context->destroy();
+    runtime->destroy();
+    engine->destroy();
+
+    checkRuntime(cudaFreeHost(input_data_host));
+    checkRuntime(cudaFreeHost(output_data_host));
+    checkRuntime(cudaFree(input_data_device));
+    checkRuntime(cudaFree(output_data_device));
 }

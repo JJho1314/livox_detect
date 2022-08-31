@@ -1,0 +1,8 @@
+prefix=/home/jjho/code/my_project/livox_detect/devel
+
+Name: livox_detect
+Description: Description of livox_detect
+Version: 0.0.0
+Cflags: 
+Libs: -L${prefix}/lib 
+Requires: 

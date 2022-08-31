@@ -1,8 +1,45 @@
 cmake_minimum_required(VERSION 3.0)
-project(livox_detection)
+project(livox_detect)
 
 add_compile_options(-std=c++11)
 set(CMAKE_BUILD_TYPE "Debug")
+
+find_package(catkin REQUIRED COMPONENTS
+        roscpp
+        rospy
+        std_msgs
+        roslaunch
+        autoware_msgs
+        # cv_bridge    //开启这个会造成opencv的冲突
+        pcl_conversions
+        pcl_ros
+        geometry_msgs
+        laser_geometry
+        sensor_msgs
+        message_generation
+        visualization_msgs
+        # common_lib
+        # object_builders_lib
+        # grid_map_ros
+        # grid_map_cv               //注释掉避免在xavier编译时与pcl1.8的kdtree_flannch
+        # grid_map_msgs
+        jsk_rviz_plugins
+        jsk_recognition_msgs
+)
+
+generate_messages(
+        DEPENDENCIES
+        std_msgs
+        geometry_msgs
+        sensor_msgs
+)
+
+catkin_package(
+        # INCLUDE_DIRS
+        # LIBRARIES
+        # CATKIN_DEPENDS roscpp rospy std_msgs
+)
+
 # set flags for CUDA availability
 set(USE_CUDA ON)
 option(CUDA_AVAIL "CUDA available" OFF)
@@ -80,7 +117,7 @@ if(TRT_AVAIL AND CUDA_AVAIL AND CUDNN_AVAIL)
 
   include_directories(
     include
-    src/onnx-tensorrt
+    ${catkin_INCLUDE_DIRS}
     /usr/local/cuda-10.2/include
     ${Eigen3_INCLUDE_DIRS}
     ${PCL_INCLUDE_DIRS}
@@ -107,6 +144,7 @@ if(TRT_AVAIL AND CUDA_AVAIL AND CUDNN_AVAIL)
   target_link_libraries(livox_detection
     ${NVINFER}
     ${NVONNXPARSERS}
+    ${catkin_LIBRARIES}
     ${CUDA_LIBRARIES}
     ${CUDA_CUBLAS_LIBRARIES}
     ${CUDA_curand_LIBRARY}

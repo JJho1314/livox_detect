@@ -1,13 +1,17 @@
 #ifndef LIVOX_DETECTION
 #define LIVOX_DETECTION
 
+#include "postprocess_cuda.h"
+
 #include <iostream>
 // 推理用的运行时头文件
 #include <NvInferRuntime.h>
 
 #include <pcl/common/common.h>
 
-#include "postprocess_cuda.h"
+// headers in ROS
+#include <ros/ros.h>
+#include <sensor_msgs/PointCloud2.h>
 
 bool build_model();
 
@@ -70,11 +74,11 @@ public:
 
     ~livox_detection();
 
-    void preprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pcl_pc_ptr, pcl::PointCloud<pcl::PointXYZ>::Ptr &out_pcl_pc_ptr, float *out_points_array);
-
-    void doprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pcl_pc_ptr);
-
-    void postprocess(const float *rpn_all_output, std::vector<Box> &predResult);
+    /**
+     * @brief Create ROS pub/sub obejct
+     * @details Create/Initializing ros pub/sub object
+     */
+    void createROSPubSub();
 
     int BEV_W = 1120;
     int BEV_H = 448;
@@ -87,14 +91,49 @@ private:
 
     void mask_points_out_of_range(pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pcl_pc_ptr);
 
-    pcl::PointCloud<pcl::PointXYZ> input_cloud_;
+    void preprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pcl_pc_ptr, pcl::PointCloud<pcl::PointXYZ>::Ptr &out_pcl_pc_ptr, float *out_points_array);
 
-    const int OUTPUT_SIZE = 1 * 9 * 500;
+    void doprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pcl_pc_ptr);
+
+    void postprocess(const float *rpn_all_output, std::vector<Box> &predResult);
+
+    void initTRT();
+
+    /**
+     * @brief callback for pointcloud
+     * @param[in] input pointcloud from lidar sensor
+     * @details Call point_pillars to get 3D bounding box
+     */
+    void pointsCallback(const sensor_msgs::PointCloud2::ConstPtr &input);
+
+    // initializer list
+    ros::NodeHandle private_nh_;
+
+    ros::NodeHandle nh_;
+    ros::Subscriber sub_points_;
+    ros::Publisher pub_objects_;
+    ros::Publisher pub_objects_marker_;
+
+    std::vector<unsigned char> engine_data;
+    nvinfer1::IExecutionContext *execution_context;
+    nvinfer1::IRuntime *runtime;
+    nvinfer1::ICudaEngine *engine;
+
+    float *input_data_host;
+    float *input_data_device;
+    float *output_data_host;
+    float *output_data_device;
+
     float *dev_filtered_box_;
     float *dev_filtered_score_;
     int *dev_filtered_label_;
     int dev_filter_count_;
     long *dev_keep_data_;
+
+    float theta = 0;
+    int input_batch = 1;
+    int input_numel = input_batch * BEV_C * BEV_H * BEV_W;
+    const int OUTPUT_SIZE = 1 * 9 * 500;
     float point_cloud_range[6] = {0, -44.8, -2, 224, 44.8, 4};
     float voxel_size[3] = {0.2, 0.2, 0.2};
 };
