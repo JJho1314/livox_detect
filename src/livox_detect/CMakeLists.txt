@@ -58,8 +58,7 @@ find_package(PCL REQUIRED)
 include_directories(/usr/local/cuda-10.2/include)
 link_directories(/usr/local/cuda-10.2/lib64)
 # # tensorrt
-include_directories(/home/jjho/software/TensorRT-7.1.3.4/include/)
-link_directories(/home/jjho/software/TensorRT-7.1.3.4/lib/)
+
 
 if (USE_CUDA)
   message("CUDA is available!")
@@ -74,9 +73,9 @@ endif ()
 # set flags for TensorRT availability
 option(TRT_AVAIL "TensorRT available" OFF)
 # try to find the tensorRT modules
-find_library(NVINFER libnvinfer.so /home/jjho/software/TensorRT-7.1.3.4/lib)
-find_library(NVPARSERS libnvparsers.so /home/jjho/software/TensorRT-7.1.3.4/lib)
-find_library(NVONNXPARSERS libnvonnxparser.so /home/jjho/software/TensorRT-7.1.3.4/lib)
+find_library(NVINFER libnvinfer.so )
+find_library(NVPARSERS libnvparsers.so )
+find_library(NVONNXPARSERS libnvonnxparser.so)
 # try to find the tensorRT modules
 # find_library(NVINFER libnvinfer.so)
 # find_library(NVPARSERS libnvparsers.so)
