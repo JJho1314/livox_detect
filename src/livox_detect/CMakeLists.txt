@@ -126,6 +126,7 @@ if(TRT_AVAIL AND CUDA_AVAIL AND CUDNN_AVAIL)
   set(SOURCE_FILES
     src/main.cpp
     src/livox_detection.cpp
+    src/clip.cpp
   )
 
   add_executable(livox_detection

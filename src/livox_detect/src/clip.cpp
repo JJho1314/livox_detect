@@ -7,23 +7,24 @@
  * @LastEditTime: 2021-10-22 19:02:30
  */
 #include "clip.h"
+#include "config.h"
 #include <pcl/io/pcd_io.h>
 #include <pcl/point_cloud.h>
 #include <pcl/common/transforms.h>
 
 Clip::Clip(ros::NodeHandle &nh, ros::NodeHandle &private_nh)
 {
-    private_nh.param<float>("min_x", min_x, -30.0);
-    private_nh.param<float>("max_x", max_x, 120.0);
-    private_nh.param<float>("min_y", min_y, -30.0);
-    private_nh.param<float>("max_y", max_y, 30.0);
-    private_nh.param<float>("min_z", min_z, -2.2);
-    private_nh.param<float>("max_z", max_z, 1.5);
+    private_nh.param<float>("min_x", min_x, cloud_x_min);
+    private_nh.param<float>("max_x", max_x, cloud_x_max);
+    private_nh.param<float>("min_y", min_y, cloud_y_min);
+    private_nh.param<float>("max_y", max_y, cloud_y_max);
+    private_nh.param<float>("min_z", min_z, cloud_z_min - offset_ground);
+    private_nh.param<float>("max_z", max_z, cloud_z_max - offset_ground);
     private_nh.param<float>("min_base_x", min_base_x, -2.0);
     private_nh.param<float>("max_base_x", max_base_x, 2.0);
     private_nh.param<float>("min_base_y", min_base_y, -1.0);
     private_nh.param<float>("max_base_y", max_base_y, 1.0);
-    private_nh.param<float>("min_base_z", min_base_z, -2.2);
+    private_nh.param<float>("min_base_z", min_base_z, -0.05);
     private_nh.param<float>("max_base_z", max_base_z, 0.05);
 }
 

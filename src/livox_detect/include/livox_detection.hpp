@@ -93,9 +93,11 @@ private:
 
     void preprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pcl_pc_ptr, pcl::PointCloud<pcl::PointXYZ>::Ptr &out_pcl_pc_ptr, float *out_points_array);
 
-    void doprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pcl_pc_ptr);
+    void doprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pcl_pc_ptr, std::vector<Box> &pre_box);
 
     void postprocess(const float *rpn_all_output, std::vector<Box> &predResult);
+
+    void pubDetectedObject_Marker(const std::vector<Box> &detections, const std_msgs::Header &in_header);
 
     void initTRT();
 
@@ -104,7 +106,7 @@ private:
      * @param[in] input pointcloud from lidar sensor
      * @details Call point_pillars to get 3D bounding box
      */
-    void pointsCallback(const sensor_msgs::PointCloud2::ConstPtr &input);
+    void pointsCallback(const sensor_msgs::PointCloud2::ConstPtr &msg);
 
     // initializer list
     ros::NodeHandle private_nh_;

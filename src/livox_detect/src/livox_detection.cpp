@@ -38,6 +38,9 @@
 #include <pcl/io/pcd_io.h>
 #include <pcl/visualization/pcl_visualizer.h>
 
+// headers in local files
+#include "autoware_msgs/DetectedObjectArray.h"
+
 #define checkRuntime(op) __check_cuda_runtime((op), #op, __FILE__, __LINE__)
 
 std::string ONNX_Path = "/home/jjho/code/my_project/livox_detect/models/livox_detection_sim.onnx";
@@ -134,18 +137,18 @@ void livox_detection::point_filter(pcl::PointCloud<pcl::PointXYZ>::Ptr &cloud, c
 
 void livox_detection::mask_points_out_of_range(pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pcl_pc_ptr)
 {
-    pcl::PointXYZ min;
-    pcl::PointXYZ max;
+    // pcl::PointXYZ min;
+    // pcl::PointXYZ max;
 
     point_filter(in_pcl_pc_ptr, cloud_x_min, cloud_x_max - 0.01, "x", false);
     point_filter(in_pcl_pc_ptr, cloud_y_min, cloud_y_max - 0.01, "y", false);
-    point_filter(in_pcl_pc_ptr, cloud_z_min, cloud_z_max - 0.01, "z", false);
+    point_filter(in_pcl_pc_ptr, cloud_z_min - offset_ground, cloud_z_max - offset_ground - 0.01, "z", false);
 
-    pcl::getMinMax3D(*in_pcl_pc_ptr, min, max);
+    // pcl::getMinMax3D(*in_pcl_pc_ptr, min, max);
 
-    std::cout << max.x << "," << min.x << std::endl;
-    std::cout << max.y << "," << min.y << std::endl;
-    std::cout << max.z << "," << min.z << std::endl;
+    // std::cout << max.x << "," << min.x << std::endl;
+    // std::cout << max.y << "," << min.y << std::endl;
+    // std::cout << max.z << "," << min.z << std::endl;
 }
 
 void livox_detection::pclToArray(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pcl_pc_ptr, float *out_points_array)
@@ -159,7 +162,7 @@ void livox_detection::pclToArray(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_p
         pcl::PointXYZ point = in_pcl_pc_ptr->at(i);
         int pc_lidar_x = floor((point.x - cloud_x_min) / DX);
         int pc_lidar_y = floor((point.y - cloud_y_min) / DY);
-        int pc_lidar_z = floor((point.z + -cloud_z_min) / DZ);
+        int pc_lidar_z = floor((point.z + offset_ground - cloud_z_min) / DZ);
         out_points_array[BEV_W * BEV_H * pc_lidar_z + BEV_W * pc_lidar_y + pc_lidar_x] = 1;
     }
 }
@@ -168,13 +171,11 @@ void livox_detection::preprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_p
 {
     std::cout << "livox detect preprocess start" << std::endl;
 
-    Eigen::Affine3f transform = Eigen::Affine3f::Identity();
-    transform.rotate(Eigen::AngleAxisf(theta, Eigen::Vector3f::UnitX())); //同理，UnitX(),绕X轴；UnitY(),绕Y轴
-    transform.translation() << 0.0, 0.0, offset_ground;                   // 三个数分别对应X轴、Y轴、Z轴方向上的平移
+    Clip clip(nh_, private_nh_);
 
-    pcl::transformPointCloud(*in_pcl_pc_ptr, *out_pcl_pc_ptr, transform);
+    clip.Process(*in_pcl_pc_ptr, *out_pcl_pc_ptr); //删除多余的点
 
-    mask_points_out_of_range(out_pcl_pc_ptr);
+    // mask_points_out_of_range(out_pcl_pc_ptr);
 
     pclToArray(out_pcl_pc_ptr, out_points_array);
 
@@ -224,15 +225,13 @@ void livox_detection::postprocess(const float *rpn_all_output, std::vector<Box> 
     checkRuntime(cudaFreeHost(dev_keep_data_));
 }
 
-void livox_detection::doprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pcl_pc_ptr)
+void livox_detection::doprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pcl_pc_ptr, std::vector<Box> &pre_box)
 {
 
     pcl::PointCloud<pcl::PointXYZ>::Ptr transformed_cloud_ptr(new pcl::PointCloud<pcl::PointXYZ>);
 
     checkRuntime(cudaMallocHost(&input_data_host, input_numel * sizeof(float)));
     checkRuntime(cudaMalloc(&input_data_device, input_numel * sizeof(float)));
-
-    // clock_t start = clock();
 
     preprocess(in_pcl_pc_ptr, transformed_cloud_ptr, input_data_host);
 
@@ -260,54 +259,267 @@ void livox_detection::doprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pc
     checkRuntime(cudaMemcpyAsync(output_data_host, output_data_device, OUTPUT_SIZE * sizeof(float), cudaMemcpyDeviceToHost, stream));
     checkRuntime(cudaStreamSynchronize(stream));
 
-    // clock_t end = clock();
-    // printf("Total time: %lf s \n", (double)(end - start) / CLOCKS_PER_SEC);
-
-    std::vector<Box> Box_Vehicle;
-
-    postprocess(output_data_host, Box_Vehicle);
+    postprocess(output_data_host, pre_box);
 
     checkRuntime(cudaStreamDestroy(stream));
 
     std::cout << "livox detect infer finish" << std::endl;
-
-    // boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer(new pcl::visualization::PCLVisualizer("cloud"));
-    // viewer->addPointCloud<pcl::PointXYZ>(transformed_cloud_ptr, "sample cloud");
-    // viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "sample cloud");
-    // viewer->addCoordinateSystem(1.0);
-    // viewer->initCameraParameters();
-
-    // viewer->setBackgroundColor(0, 0, 0);
-
-    // for (int i = 0; i < Box_Vehicle.size(); i++)
-    // {
-    //     std::string name = "Vehicle" + std::to_string(i);
-    //     viewer->addCube(float(Box_Vehicle[i].x) - Box_Vehicle[i].dx / 2, Box_Vehicle[i].x + Box_Vehicle[i].dx / 2, float(Box_Vehicle[i].y) - Box_Vehicle[i].dy / 2, Box_Vehicle[i].y + Box_Vehicle[i].dy / 2, float(Box_Vehicle[i].z) - Box_Vehicle[i].dz / 2, Box_Vehicle[i].z + Box_Vehicle[i].dz / 2, 1.0, 1.0, 1.0, name);
-    //     viewer->setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR, 1, 0, 0, name); //绿框
-    //     viewer->setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_REPRESENTATION, pcl::visualization::PCL_VISUALIZER_REPRESENTATION_WIREFRAME, name);
-
-    //     viewer->setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_OPACITY, 0.1, name);
-    //     viewer->setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 3, name);
-    // }
-
-    // while (!viewer->wasStopped())
-    // {
-    //     viewer->spinOnce(100);
-    //     boost::this_thread::sleep(boost::posix_time::microseconds(100000));
-    // }
 }
 
-void livox_detection::pointsCallback(const sensor_msgs::PointCloud2::ConstPtr &input)
+void livox_detection::pubDetectedObject_Marker(const std::vector<Box> &detections, const std_msgs::Header &in_header)
 {
-    pcl::PointCloud<pcl::PointXYZI>::Ptr pcl_pc_ptr(new pcl::PointCloud<pcl::PointXYZI>);
+    autoware_msgs::DetectedObjectArray objects;
+    objects.header = in_header;
+
+    // clear all markers before
+    visualization_msgs::MarkerArray empty_markers;
+    visualization_msgs::Marker clear_marker;
+    clear_marker.header = in_header;
+    clear_marker.ns = "objects";
+    clear_marker.id = 0;
+    clear_marker.action = clear_marker.DELETEALL;
+    clear_marker.lifetime = ros::Duration();
+    empty_markers.markers.push_back(clear_marker);
+    pub_objects_marker_.publish(empty_markers);
+
+    int num_objects = detections.size() / OUTPUT_NUM_BOX_FEATURE_;
+    if (num_objects <= 0)
+    {
+        // printf("Publish empty object marker.\n");
+        return;
+    }
+    visualization_msgs::MarkerArray object_markers;
+
+    for (size_t i = 0; i < num_objects; i++)
+    {
+
+        /*Autoware start*/
+        autoware_msgs::DetectedObject object;
+        object.header = in_header;
+        object.valid = true;
+        object.pose_reliable = true;
+
+        object.pose.position.x = pre_box.x;
+        object.pose.position.y = pre_box.y;
+        object.pose.position.z = pre_box.z - offset_ground;
+
+        // Trained this way
+        float autoware_yaw = pre_box.theta;
+
+        geometry_msgs::Quaternion q = tf::createQuaternionMsgFromYaw(autoware_yaw);
+        object.pose.orientation = q;
+
+        if (true)
+        {
+            object.pose = getTransformedPose(object.pose, angle_transform_inversed_);
+        }
+
+        // Again: Trained this way
+        object.dimensions.x = pre_box.dx;
+        object.dimensions.y = pre_box.dy;
+        object.dimensions.z = pre_box.dz;
+
+        /*Auwoware Msg End*/
+
+        const float object_px = pre_box.x;
+        const float object_py = pre_box.y;
+        const float object_pz = pre_box.z - offset_ground;
+        const float object_dx = pre_box.dx;
+        const float object_dy = pre_box.dy;
+        const float object_dz = pre_box.dz;
+        const float object_yaw = pre_box.theta;
+
+        float yaw = std::atan2(std::sin(object_yaw), std::cos(object_yaw));
+        float cos_yaw = std::cos(yaw);
+        float sin_yaw = std::sin(yaw);
+        float half_dx = object_dx / 2;
+        float half_dy = object_dy / 2;
+        float half_dz = object_dz / 2;
+
+        // for autoware
+        //  geometry_msgs::Quaternion q = tf::createQuaternionMsgFromYaw(yaw+M_PI/2);
+        //  object.pose.orientation = q;
+
+        visualization_msgs::Marker box, dir_arrow, text_show;
+        box.header = dir_arrow.header = text_show.header = in_header;
+        box.ns = dir_arrow.ns = text_show.ns = "objects";
+        box.id = i;
+        // dir_arrow.id = obj + objects_array.size();
+        text_show.id = i + num_objects;
+        box.type = visualization_msgs::Marker::LINE_LIST;
+        dir_arrow.type = visualization_msgs::Marker::ARROW;
+        text_show.type = visualization_msgs::Marker::TEXT_VIEW_FACING;
+        geometry_msgs::Point p[24];
+        // Ground side
+        // A->B
+        p[0].x = object_px + half_dx * cos_yaw - half_dy * sin_yaw;
+        p[0].y = object_py + half_dx * sin_yaw + half_dy * cos_yaw;
+        p[0].z = object_pz - half_dz;
+        p[1].x = object_px + half_dx * cos_yaw + half_dy * sin_yaw;
+        p[1].y = object_py + half_dx * sin_yaw - half_dy * cos_yaw;
+        p[1].z = object_pz - half_dz;
+        // B->C
+        p[2].x = p[1].x;
+        p[2].y = p[1].y;
+        p[2].z = p[1].z;
+        p[3].x = object_px - half_dx * cos_yaw + half_dy * sin_yaw;
+        p[3].y = object_py - half_dx * sin_yaw - half_dy * cos_yaw;
+        p[3].z = object_pz - half_dz;
+        // C->D
+        p[4].x = p[3].x;
+        p[4].y = p[3].y;
+        p[4].z = p[3].z;
+        p[5].x = object_px - half_dx * cos_yaw - half_dy * sin_yaw;
+        p[5].y = object_py - half_dx * sin_yaw + half_dy * cos_yaw;
+        p[5].z = object_pz - half_dz;
+        // D->A
+        p[6].x = p[5].x;
+        p[6].y = p[5].y;
+        p[6].z = p[5].z;
+        p[7].x = p[0].x;
+        p[7].y = p[0].y;
+        p[7].z = p[0].z;
+
+        // Top side
+        // E->F
+        p[8].x = p[0].x;
+        p[8].y = p[0].y;
+        p[8].z = object_pz + half_dz;
+        p[9].x = p[1].x;
+        p[9].y = p[1].y;
+        p[9].z = object_pz + half_dz;
+        // F->G
+        p[10].x = p[1].x;
+        p[10].y = p[1].y;
+        p[10].z = object_pz + half_dz;
+        p[11].x = p[3].x;
+        p[11].y = p[3].y;
+        p[11].z = object_pz + half_dz;
+        // G->H
+        p[12].x = p[3].x;
+        p[12].y = p[3].y;
+        p[12].z = object_pz + half_dz;
+        p[13].x = p[5].x;
+        p[13].y = p[5].y;
+        p[13].z = object_pz + half_dz;
+        // H->E
+        p[14].x = p[5].x;
+        p[14].y = p[5].y;
+        p[14].z = object_pz + half_dz;
+        p[15].x = p[0].x;
+        p[15].y = p[0].y;
+        p[15].z = object_pz + half_dz;
+
+        // Around side
+        // A->E
+        p[16].x = p[0].x;
+        p[16].y = p[0].y;
+        p[16].z = p[0].z;
+        p[17].x = p[8].x;
+        p[17].y = p[8].y;
+        p[17].z = p[8].z;
+        // B->F
+        p[18].x = p[1].x;
+        p[18].y = p[1].y;
+        p[18].z = p[1].z;
+        p[19].x = p[9].x;
+        p[19].y = p[9].y;
+        p[19].z = p[9].z;
+        // C->G
+        p[20].x = p[3].x;
+        p[20].y = p[3].y;
+        p[20].z = p[3].z;
+        p[21].x = p[11].x;
+        p[21].y = p[11].y;
+        p[21].z = p[11].z;
+        // D->H
+        p[22].x = p[5].x;
+        p[22].y = p[5].y;
+        p[22].z = p[5].z;
+        p[23].x = p[13].x;
+        p[23].y = p[13].y;
+        p[23].z = p[13].z;
+
+        for (size_t pi = 0u; pi < 24; ++pi)
+        {
+            box.points.push_back(p[pi]);
+        }
+        box.scale.x = 0.1;
+        // box.color = color;
+        box.color.a = 1.0;
+        box.color.r = 0.18;
+        box.color.g = 0.45;
+        box.color.b = 0.70;
+
+        object_markers.markers.push_back(box);
+
+        // text
+        geometry_msgs::Pose pose;
+        pose.position.x = object_px;
+        pose.position.y = object_py;
+        pose.position.z = object_pz + half_dz;
+        text_show.pose = pose;
+
+        std::ostringstream str;
+        str.precision(2);
+        str.setf(std::ios::fixed);
+        // double vx = objects_array[obj]->velocity[0];
+        // double vy = objects_array[obj]->velocity[1];
+        // double ground_v = sqrt(vx * vx + vy * vy);
+        // double distance_ck = sqrt(center(0)*center(0) + center(1)*center(1));
+        // str << "id:"<< objects_array[obj]->track_id<<"\n" ;//<< "v:" << ground_v;
+        // str << "d: "<<distance_ck<<"\n";
+        // str << "v:" << ground_v;
+
+        // add label
+        if (labels[i] == 0)
+        {
+            str << " car";
+        }
+        else if (labels[i] == 1)
+        {
+            str << " pedestrian";
+        }
+        else if (labels[i] == 2)
+        {
+            str << " cyclist";
+        }
+        else
+        {
+            str << "car";
+            // printf("Why output unknown object ?!\n");
+        }
+
+        text_show.text = str.str();
+
+        text_show.action = visualization_msgs::Marker::ADD;
+        text_show.color.a = 1.0;
+        text_show.color.r = 1.0;
+        text_show.color.g = 1.0;
+        text_show.color.b = 0.0;
+
+        text_show.scale.z = 1;
+        object_markers.markers.push_back(text_show);
+
+        // for autoware object label
+        object.label = str.str();
+        objects.objects.push_back(object);
+    }
+    pub_objects_marker_.publish(object_markers);
+    pub_objects_.publish(objects);
+}
+
+void livox_detection::pointsCallback(const sensor_msgs::PointCloud2::ConstPtr &msg)
+{
+    pcl::PointCloud<pcl::PointXYZ>::Ptr pcl_pc_ptr(new pcl::PointCloud<pcl::PointXYZ>);
     pcl::fromROSMsg(*msg, *pcl_pc_ptr);
     double start_time = ros::Time::now().toSec();
 
     // 去除128中的nan点
-    pcl::PointCloud<pcl::PointXYZI>::Ptr filtered_cloud_ptr(new pcl::PointCloud<pcl::PointXYZI>);
+    pcl::PointCloud<pcl::PointXYZ>::Ptr filtered_cloud_ptr(new pcl::PointCloud<pcl::PointXYZ>);
     for (size_t i = 0; i < pcl_pc_ptr->size(); i++)
     {
-        pcl::PointXYZI point = pcl_pc_ptr->at(i);
+        pcl::PointXYZ point = pcl_pc_ptr->at(i);
         if (std::isnan(point.x) || std::isinf(point.x) || std::isnan(point.y) || std::isinf(point.y) ||
             std::isnan(point.z) || std::isinf(point.z))
         {
@@ -316,6 +528,17 @@ void livox_detection::pointsCallback(const sensor_msgs::PointCloud2::ConstPtr &i
         filtered_cloud_ptr->push_back(point);
     }
     pcl_pc_ptr = filtered_cloud_ptr;
+
+    // 去除128中的nan点
+    pcl::PointCloud<pcl::PointXYZ>::Ptr out_pcl_pc_ptr(new pcl::PointCloud<pcl::PointXYZ>);
+    Eigen::Affine3f transform = Eigen::Affine3f::Identity();
+    transform.rotate(Eigen::AngleAxisf(theta, Eigen::Vector3f::UnitX())); //同理，UnitX(),绕X轴；UnitY(),绕Y轴
+    pcl::transformPointCloud(*pcl_pc_ptr, *out_pcl_pc_ptr, transform);
+
+    std::vector<Box> pre_box;
+    doprocess(out_pcl_pc_ptr, pre_box);
+
+    pubDetectedObject_Marker(pre_box, msg->header);
 }
 
 void livox_detection::createROSPubSub()
