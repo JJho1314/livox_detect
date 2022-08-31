@@ -182,7 +182,7 @@ void livox_detection::mask_points_out_of_range(pcl::PointCloud<pcl::PointXYZ>::P
 
     point_filter(in_pcl_pc_ptr, cloud_x_min, cloud_x_max - 0.01, "x", false);
     point_filter(in_pcl_pc_ptr, cloud_y_min, cloud_y_max - 0.01, "y", false);
-    point_filter(in_pcl_pc_ptr, cloud_z_min, cloud_z_max - 0.01, "z", false);
+    point_filter(in_pcl_pc_ptr, cloud_z_min - offset_ground, cloud_z_max - 0.01 - offset_ground, "z", false);
 
     pcl::getMinMax3D(*in_pcl_pc_ptr, min, max);
 
@@ -202,7 +202,7 @@ void livox_detection::pclToArray(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_p
         pcl::PointXYZ point = in_pcl_pc_ptr->at(i);
         int pc_lidar_x = floor((point.x - cloud_x_min) / DX);
         int pc_lidar_y = floor((point.y - cloud_y_min) / DY);
-        int pc_lidar_z = floor((point.z - cloud_z_min) / DZ);
+        int pc_lidar_z = floor((point.z + offset_ground - cloud_z_min) / DZ);
         out_points_array[BEV_W * BEV_H * pc_lidar_z + BEV_W * pc_lidar_y + pc_lidar_x] = 1;
     }
 }
@@ -211,13 +211,15 @@ void livox_detection::preprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_p
 {
     std::cout << "livox detect preprocess start" << std::endl;
 
-    float theta = 0;
+    // float theta = 0;
 
-    Eigen::Affine3f transform = Eigen::Affine3f::Identity();
-    transform.rotate(Eigen::AngleAxisf(theta, Eigen::Vector3f::UnitX())); //同理，UnitX(),绕X轴；UnitY(),绕Y轴
-    transform.translation() << 0.0, 0.0, offset_ground;                   // 三个数分别对应X轴、Y轴、Z轴方向上的平移
+    // Eigen::Affine3f transform = Eigen::Affine3f::Identity();
+    // transform.rotate(Eigen::AngleAxisf(theta, Eigen::Vector3f::UnitX())); //同理，UnitX(),绕X轴；UnitY(),绕Y轴
+    // transform.translation() << 0.0, 0.0, offset_ground;                   // 三个数分别对应X轴、Y轴、Z轴方向上的平移
 
-    pcl::transformPointCloud(*in_pcl_pc_ptr, *out_pcl_pc_ptr, transform);
+    // pcl::transformPointCloud(*in_pcl_pc_ptr, *out_pcl_pc_ptr, transform);
+
+    out_pcl_pc_ptr = in_pcl_pc_ptr;
 
     mask_points_out_of_range(out_pcl_pc_ptr);
 
@@ -350,7 +352,7 @@ void livox_detection::doprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pc
     for (int i = 0; i < Box_Vehicle.size(); i++)
     {
         std::string name = "Vehicle" + std::to_string(i);
-        viewer->addCube(float(Box_Vehicle[i].x) - Box_Vehicle[i].dx / 2, Box_Vehicle[i].x + Box_Vehicle[i].dx / 2, float(Box_Vehicle[i].y) - Box_Vehicle[i].dy / 2, Box_Vehicle[i].y + Box_Vehicle[i].dy / 2, float(Box_Vehicle[i].z) - Box_Vehicle[i].dz / 2, Box_Vehicle[i].z + Box_Vehicle[i].dz / 2, 1.0, 1.0, 1.0, name);
+        viewer->addCube(float(Box_Vehicle[i].x) - Box_Vehicle[i].dx / 2, Box_Vehicle[i].x + Box_Vehicle[i].dx / 2, float(Box_Vehicle[i].y) - Box_Vehicle[i].dy / 2, Box_Vehicle[i].y + Box_Vehicle[i].dy / 2, float(Box_Vehicle[i].z) - offset_ground - Box_Vehicle[i].dz / 2, Box_Vehicle[i].z - offset_ground + Box_Vehicle[i].dz / 2, 1.0, 1.0, 1.0, name);
         viewer->setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_COLOR, 1, 0, 0, name); //绿框
         viewer->setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_REPRESENTATION, pcl::visualization::PCL_VISUALIZER_REPRESENTATION_WIREFRAME, name);
 
