@@ -1,0 +1,13 @@
+<launch>
+  <arg name="engine_Path" default="/home/jjho/code/my_project/livox_detect/src/livox_detect/models/livox_detection_sim.engine" />
+
+  <node name="rviz" pkg="rviz" type="rviz" args="-d $(find livox_detect)/rviz/kitti.rviz"/>
+
+  <node pkg="livox_detect" type="livox_detect" name="livox_detect" output="screen" >
+    <param name="engine_Path"   value="$(arg engine_Path)" />
+  </node>
+
+  <node pkg="detected_objects_visualizer" type="visualize_detected_objects" name="livox_detect_visualization_01"
+        output="screen" ns="/detection/lidar_detector_3d" />
+
+</launch>

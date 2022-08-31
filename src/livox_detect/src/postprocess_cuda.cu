@@ -73,7 +73,7 @@ void PostprocessCuda::doPostprocessCuda(const float *rpn_all_output, float *dev_
     for (auto i = 0; i < boxSizeAft; i++)
     {
         int ii = dev_keep_data[i];
-        std::cout << i << ", " << ii << ", \n";
+        // std::cout << i << ", " << ii << ", \n";
         int idx = ii;
         Box box;
 

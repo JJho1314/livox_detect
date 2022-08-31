@@ -4,6 +4,10 @@ project(livox_detect)
 add_compile_options(-std=c++11)
 set(CMAKE_BUILD_TYPE "Debug")
 
+set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
 find_package(catkin REQUIRED COMPONENTS
         roscpp
         rospy
@@ -129,7 +133,7 @@ if(TRT_AVAIL AND CUDA_AVAIL AND CUDNN_AVAIL)
     src/clip.cpp
   )
 
-  add_executable(livox_detection
+  add_executable(livox_detect
     ${SOURCE_FILES}
   )
 
@@ -142,7 +146,7 @@ if(TRT_AVAIL AND CUDA_AVAIL AND CUDNN_AVAIL)
     ${CUDA_LIBRARIES}
   )
 
-  target_link_libraries(livox_detection
+  target_link_libraries(livox_detect
     ${NVINFER}
     ${NVONNXPARSERS}
     ${catkin_LIBRARIES}

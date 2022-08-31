@@ -11,6 +11,8 @@
 
 // headers in ROS
 #include <ros/ros.h>
+#include <tf/transform_listener.h>
+#include "geometry_msgs/PoseStamped.h"
 #include <sensor_msgs/PointCloud2.h>
 
 bool build_model();
@@ -108,6 +110,15 @@ private:
      */
     void pointsCallback(const sensor_msgs::PointCloud2::ConstPtr &msg);
 
+    /**
+     * @brief Transform pose based on tf stamp info
+     * @param[in] in_pose Target pose to be transformed
+     * @param[in] tf TF stamp contains rotation matrix and translation matrix
+     * @return geometry_msgs::Pose Transformed pose
+     * @details Calculate transformed pose
+     */
+    geometry_msgs::Pose getTransformedPose(const geometry_msgs::Pose &in_pose, const tf::Transform &tf);
+
     // initializer list
     ros::NodeHandle private_nh_;
 
@@ -121,6 +132,8 @@ private:
     nvinfer1::IRuntime *runtime;
     nvinfer1::ICudaEngine *engine;
 
+    tf::Transform angle_transform_inversed_;
+
     float *input_data_host;
     float *input_data_device;
     float *output_data_host;
@@ -132,6 +145,7 @@ private:
     int dev_filter_count_;
     long *dev_keep_data_;
 
+    std::string engine_Path;
     float theta = 0;
     int input_batch = 1;
     int input_numel = input_batch * BEV_C * BEV_H * BEV_W;

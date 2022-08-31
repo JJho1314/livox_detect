@@ -70,13 +70,13 @@ add_service_files(
   FILES RecognizeLightState.srv
 )
 
-generate_messages(
-  DEPENDENCIES
-    geometry_msgs
-    jsk_recognition_msgs
-    sensor_msgs
-    std_msgs
-)
+# generate_messages(
+#   DEPENDENCIES
+#     geometry_msgs
+#     jsk_recognition_msgs
+#     sensor_msgs
+#     std_msgs
+# )
 
 catkin_package(
   CATKIN_DEPENDS

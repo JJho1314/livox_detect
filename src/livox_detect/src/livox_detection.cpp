@@ -41,10 +41,11 @@
 // headers in local files
 #include "autoware_msgs/DetectedObjectArray.h"
 
-#define checkRuntime(op) __check_cuda_runtime((op), #op, __FILE__, __LINE__)
+// headers in ROS
+#include <tf/transform_datatypes.h>
+#include <visualization_msgs/MarkerArray.h>
 
-std::string ONNX_Path = "/home/jjho/code/my_project/livox_detect/models/livox_detection_sim.onnx";
-std::string engine_Path = "/home/jjho/code/my_project/livox_detect/models/livox_detection_sim.engine";
+#define checkRuntime(op) __check_cuda_runtime((op), #op, __FILE__, __LINE__)
 
 bool __check_cuda_runtime(cudaError_t code, const char *op, const char *file, int line)
 {
@@ -116,6 +117,7 @@ void livox_detection::initTRT()
 
 livox_detection::livox_detection() : private_nh_("~")
 {
+    private_nh_.param<std::string>("engine_Path", engine_Path, "");
     initTRT();
 }
 
@@ -266,6 +268,18 @@ void livox_detection::doprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pc
     std::cout << "livox detect infer finish" << std::endl;
 }
 
+geometry_msgs::Pose livox_detection::getTransformedPose(const geometry_msgs::Pose &in_pose, const tf::Transform &tf)
+{
+    tf::Transform transform;
+    geometry_msgs::PoseStamped out_pose;
+    transform.setOrigin(tf::Vector3(in_pose.position.x, in_pose.position.y, in_pose.position.z));
+    transform.setRotation(
+        tf::Quaternion(in_pose.orientation.x, in_pose.orientation.y, in_pose.orientation.z, in_pose.orientation.w));
+    geometry_msgs::PoseStamped pose_out;
+    tf::poseTFToMsg(tf * transform, out_pose.pose);
+    return out_pose.pose;
+}
+
 void livox_detection::pubDetectedObject_Marker(const std::vector<Box> &detections, const std_msgs::Header &in_header)
 {
     autoware_msgs::DetectedObjectArray objects;
@@ -282,52 +296,46 @@ void livox_detection::pubDetectedObject_Marker(const std::vector<Box> &detection
     empty_markers.markers.push_back(clear_marker);
     pub_objects_marker_.publish(empty_markers);
 
-    int num_objects = detections.size() / OUTPUT_NUM_BOX_FEATURE_;
-    if (num_objects <= 0)
-    {
-        // printf("Publish empty object marker.\n");
-        return;
-    }
     visualization_msgs::MarkerArray object_markers;
 
-    for (size_t i = 0; i < num_objects; i++)
+    for (size_t i = 0; i < detections.size(); i++)
     {
-
         /*Autoware start*/
         autoware_msgs::DetectedObject object;
         object.header = in_header;
         object.valid = true;
         object.pose_reliable = true;
 
-        object.pose.position.x = pre_box.x;
-        object.pose.position.y = pre_box.y;
-        object.pose.position.z = pre_box.z - offset_ground;
+        object.pose.position.x = detections[i].x;
+        object.pose.position.y = detections[i].y;
+        object.pose.position.z = detections[i].z - offset_ground;
 
         // Trained this way
-        float autoware_yaw = pre_box.theta;
-
+        float autoware_yaw = detections[i].theta;
+        autoware_yaw += M_PI / 2;
+        autoware_yaw = std::atan2(std::sin(autoware_yaw), std::cos(autoware_yaw));
         geometry_msgs::Quaternion q = tf::createQuaternionMsgFromYaw(autoware_yaw);
         object.pose.orientation = q;
 
-        if (true)
-        {
-            object.pose = getTransformedPose(object.pose, angle_transform_inversed_);
-        }
+        // if (true)
+        // {
+        //     object.pose = getTransformedPose(object.pose, angle_transform_inversed_);
+        // }
 
         // Again: Trained this way
-        object.dimensions.x = pre_box.dx;
-        object.dimensions.y = pre_box.dy;
-        object.dimensions.z = pre_box.dz;
+        object.dimensions.x = detections[i].dx;
+        object.dimensions.y = detections[i].dy;
+        object.dimensions.z = detections[i].dz;
 
         /*Auwoware Msg End*/
 
-        const float object_px = pre_box.x;
-        const float object_py = pre_box.y;
-        const float object_pz = pre_box.z - offset_ground;
-        const float object_dx = pre_box.dx;
-        const float object_dy = pre_box.dy;
-        const float object_dz = pre_box.dz;
-        const float object_yaw = pre_box.theta;
+        const float object_px = detections[i].x;
+        const float object_py = detections[i].y;
+        const float object_pz = detections[i].z - offset_ground;
+        const float object_dx = detections[i].dx;
+        const float object_dy = detections[i].dy;
+        const float object_dz = detections[i].dz;
+        const float object_yaw = detections[i].theta;
 
         float yaw = std::atan2(std::sin(object_yaw), std::cos(object_yaw));
         float cos_yaw = std::cos(yaw);
@@ -345,7 +353,7 @@ void livox_detection::pubDetectedObject_Marker(const std::vector<Box> &detection
         box.ns = dir_arrow.ns = text_show.ns = "objects";
         box.id = i;
         // dir_arrow.id = obj + objects_array.size();
-        text_show.id = i + num_objects;
+        text_show.id = i + detections.size();
         box.type = visualization_msgs::Marker::LINE_LIST;
         dir_arrow.type = visualization_msgs::Marker::ARROW;
         text_show.type = visualization_msgs::Marker::TEXT_VIEW_FACING;
@@ -472,15 +480,15 @@ void livox_detection::pubDetectedObject_Marker(const std::vector<Box> &detection
         // str << "v:" << ground_v;
 
         // add label
-        if (labels[i] == 0)
+        if (detections[i].cls == 0)
         {
             str << " car";
         }
-        else if (labels[i] == 1)
+        else if (detections[i].cls == 1)
         {
             str << " pedestrian";
         }
-        else if (labels[i] == 2)
+        else if (detections[i].cls == 2)
         {
             str << " cyclist";
         }
@@ -543,6 +551,9 @@ void livox_detection::pointsCallback(const sensor_msgs::PointCloud2::ConstPtr &m
 
 void livox_detection::createROSPubSub()
 {
+    sub_points_ = nh_.subscribe<sensor_msgs::PointCloud2>("/livox/lidar", 1, &livox_detection::pointsCallback, this);
+    pub_objects_ = nh_.advertise<autoware_msgs::DetectedObjectArray>("/detection/lidar_detector_3d/objects", 1);
+    pub_objects_marker_ = nh_.advertise<visualization_msgs::MarkerArray>("/detection/pointpillars_objects", 1);
 }
 
 livox_detection::~livox_detection()
