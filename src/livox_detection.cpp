@@ -39,8 +39,8 @@
 
 #define checkRuntime(op) __check_cuda_runtime((op), #op, __FILE__, __LINE__)
 
-std::string ONNX_Path = "/home/jjho/code/my_project/livox_detect/models/livox_detection_sim.onnx";
-std::string engine_Path = "/home/jjho/code/my_project/livox_detect/models/livox_detection_sim.engine";
+std::string ONNX_Path = "/media/workspace/livox_detect/models/livox_detection_sim.onnx";
+std::string engine_Path = "/media/workspace/livox_detect/models/livox_detection_sim.engine";
 
 bool __check_cuda_runtime(cudaError_t code, const char *op, const char *file, int line)
 {
@@ -180,18 +180,18 @@ inline void livox_detection::point_filter(pcl::PointCloud<pcl::PointXYZ>::Ptr &c
 
 void livox_detection::mask_points_out_of_range(pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pcl_pc_ptr)
 {
-    pcl::PointXYZ min;
-    pcl::PointXYZ max;
+    // pcl::PointXYZ min;
+    // pcl::PointXYZ max;
 
     point_filter(in_pcl_pc_ptr, cloud_x_min, cloud_x_max - 0.01, "x", false);
     point_filter(in_pcl_pc_ptr, cloud_y_min, cloud_y_max - 0.01, "y", false);
     point_filter(in_pcl_pc_ptr, cloud_z_min, cloud_z_max - 0.01, "z", false);
 
-    pcl::getMinMax3D(*in_pcl_pc_ptr, min, max);
+    // pcl::getMinMax3D(*in_pcl_pc_ptr, min, max);
 
-    std::cout << max.x << "," << min.x << std::endl;
-    std::cout << max.y << "," << min.y << std::endl;
-    std::cout << max.z << "," << min.z << std::endl;
+    // std::cout << max.x << "," << min.x << std::endl;
+    // std::cout << max.y << "," << min.y << std::endl;
+    // std::cout << max.z << "," << min.z << std::endl;
 }
 
 void livox_detection::pclToArray(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pcl_pc_ptr, float *out_points_array)
@@ -219,13 +219,15 @@ void livox_detection::preprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_p
     Eigen::Affine3f transform = Eigen::Affine3f::Identity();
     transform.rotate(Eigen::AngleAxisf(theta, Eigen::Vector3f::UnitX())); //同理，UnitX(),绕X轴；UnitY(),绕Y轴
     transform.translation() << 0.0, 0.0, offset_ground;                   // 三个数分别对应X轴、Y轴、Z轴方向上的平移
-
+    clock_t t1 = clock();
     pcl::transformPointCloud(*in_pcl_pc_ptr, *out_pcl_pc_ptr, transform);
-
     mask_points_out_of_range(out_pcl_pc_ptr);
-
+    clock_t t2 = clock();
+    printf("preprocess time: %lf s \n", (double)(t2 - t1) / CLOCKS_PER_SEC);
+    clock_t start = clock();
     pclToArray(out_pcl_pc_ptr, out_points_array);
-
+    clock_t end = clock();
+    printf("preprocess time: %lf s \n", (double)(end - start) / CLOCKS_PER_SEC);
     std::cout << "livox detect preprocess finish" << std::endl;
 }
 
@@ -268,6 +270,11 @@ void livox_detection::postprocess(const float *rpn_all_output, std::vector<Box> 
     }
 
     postprococess.doPostprocessCuda(rpn_all_output, dev_filtered_box_, dev_filtered_score_, dev_filtered_label_, dev_filter_count_, dev_keep_data_, predResult);
+
+    checkRuntime(cudaFreeHost(dev_filtered_box_));
+    checkRuntime(cudaFreeHost(dev_filtered_score_));
+    checkRuntime(cudaFreeHost(dev_filtered_label_));
+    checkRuntime(cudaFreeHost(dev_keep_data_));
 }
 
 void livox_detection::doprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pcl_pc_ptr)
@@ -292,24 +299,13 @@ void livox_detection::doprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pc
     float *input_data_host;
     float *input_data_device;
 
-    float *points_array = new float[input_numel];
-
-    for (int i = 0; i < input_numel; i++)
-    {
-        points_array[i] = 0;
-    }
-
     pcl::PointCloud<pcl::PointXYZ>::Ptr transformed_cloud_ptr(new pcl::PointCloud<pcl::PointXYZ>);
-
-    preprocess(in_pcl_pc_ptr, transformed_cloud_ptr, points_array);
 
     checkRuntime(cudaMallocHost(&input_data_host, input_numel * sizeof(float)));
     checkRuntime(cudaMalloc(&input_data_device, input_numel * sizeof(float)));
 
-    input_data_host = points_array;
-
+    preprocess(in_pcl_pc_ptr, transformed_cloud_ptr, input_data_host);
     clock_t start = clock();
-
     ///////////////////////////////////////////////////
     // image to float
 
@@ -333,53 +329,16 @@ void livox_detection::doprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pc
     checkRuntime(cudaMemcpyAsync(output_data_host, output_data_device, OUTPUT_SIZE * sizeof(float), cudaMemcpyDeviceToHost, stream));
     checkRuntime(cudaStreamSynchronize(stream));
 
-    clock_t end = clock();
-    printf("Total time: %lf s \n", (double)(end - start) / CLOCKS_PER_SEC);
-
     std::vector<Box> Box_Vehicle;
 
     postprocess(output_data_host, Box_Vehicle);
 
-    // std::vector<Box> Box_Vehicle;
-    // std::vector<Box> Box_Pedestrian_before;
-    // std::vector<Box> Box_Cyclist_before;
-
-    // for (int i = 0; i < 500; i++)
-    // {
-    //     float *ptr = output_data_host + i * 9;
-    //     Box box;
-    //     box.x = ptr[0];
-    //     box.y = ptr[1];
-    //     box.z = ptr[2];
-    //     box.dx = ptr[3];
-    //     box.dy = ptr[4];
-    //     box.dz = ptr[5];
-    //     box.theta = ptr[6];
-    //     box.score = ptr[7];
-    //     box.cls = ptr[8];
-
-    //     if (box.x > cloud_x_min && box.x < cloud_x_max && box.y > cloud_y_min && box.y < cloud_y_max && box.z > cloud_z_min && box.z < cloud_z_max && box.score > score_thresh[box.cls])
-    //     {
-    //         if (box.cls == 0)
-    //         {
-    //             Box_Vehicle.push_back(box);
-    //         }
-    //         else if (box.cls == 1)
-    //         {
-    //             Box_Pedestrian_before.push_back(box);
-    //         }
-    //         else if (box.cls == 2)
-    //         {
-    //             Box_Cyclist_before.push_back(box);
-    //         }
-    //     }
-    // }
     checkRuntime(cudaStreamDestroy(stream));
-
+    clock_t end = clock();
+    printf("Total time: %lf s \n", (double)(end - start) / CLOCKS_PER_SEC);
     std::cout << "livox detect infer finish" << std::endl;
 
-    delete[] points_array;
-    // checkRuntime(cudaFreeHost(input_data_host));
+    checkRuntime(cudaFreeHost(input_data_host));
     checkRuntime(cudaFreeHost(output_data_host));
     checkRuntime(cudaFree(input_data_device));
     checkRuntime(cudaFree(output_data_device));

@@ -63,7 +63,7 @@ void PostprocessCuda::doPostprocessCuda(const float *rpn_all_output, float *dev_
     // filter_kernel<<<num_blocks_filter_kernel, NUM_THREADS_>>>(rpn_all_output, dev_filtered_box, dev_filtered_score, dev_filter_label, dev_filter_count, NUM_OUTPUT_BOX_FEATURE_, score_thresh_, num_anchor_);
 
     // printf("box_cls:(%f)\n", box_cls);
-
+    float score_thresh[3] = {0.2, 0.3, 0.3};
     int boxSize = findValidScoreNum(dev_filtered_score, SCORE_THREAHOLD, num_anchor_); //用于设置阈值控制分数
 
     int boxSizeAft = nms_gpu(dev_filtered_box, dev_keep_data, boxSize, NMS_THREAHOLD);
@@ -74,7 +74,7 @@ void PostprocessCuda::doPostprocessCuda(const float *rpn_all_output, float *dev_
     for (auto i = 0; i < boxSizeAft; i++)
     {
         int ii = dev_keep_data[i];
-        std::cout << i << ", " << ii << ", \n";
+        // std::cout << i << ", " << ii << ", \n";
         int idx = ii;
         Box box;
 
@@ -87,6 +87,9 @@ void PostprocessCuda::doPostprocessCuda(const float *rpn_all_output, float *dev_
         box.theta = dev_filtered_box[idx * NUM_OUTPUT_BOX_FEATURE_ + 6];
         box.score = dev_filtered_score[idx];
         box.cls = dev_filter_label[idx];
-        predResult.push_back(box);
+        if (box.x > cloud_x_min && box.x < cloud_x_max && box.y > cloud_y_min && box.y < cloud_y_max && box.z > cloud_z_min && box.z < cloud_z_max && box.score > score_thresh[box.cls])
+        {
+            predResult.push_back(box);
+        }
     }
 }

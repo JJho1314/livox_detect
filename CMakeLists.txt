@@ -2,13 +2,13 @@ cmake_minimum_required(VERSION 3.0)
 project(livox_detection)
 
 add_compile_options(-std=c++11)
-set(CMAKE_BUILD_TYPE "Debug")
+set(CMAKE_BUILD_TYPE "Release")
 # set flags for CUDA availability
 set(USE_CUDA ON)
 option(CUDA_AVAIL "CUDA available" OFF)
 find_package(CUDA REQUIRED)
 find_package(Eigen3 REQUIRED)
-find_package(PCL 1.9 REQUIRED)
+find_package(PCL 1.8 REQUIRED)
 # find_package(autoware_build_flags REQUIRED)
 
 # AW_CHECK_CUDA()
@@ -17,8 +17,8 @@ find_package(PCL 1.9 REQUIRED)
 include_directories(/usr/local/cuda-10.2/include)
 link_directories(/usr/local/cuda-10.2/lib64)
 # # tensorrt
-include_directories(/home/jjho/software/TensorRT-7.0.0.11/include/)
-link_directories(/home/jjho/software/TensorRT-7.0.0.11/lib/)
+include_directories(/home/nvidia/software/TensorRT-7.0.0.11/include/)
+link_directories(/home/nvidia/software/TensorRT-7.0.0.11/lib/)
 
 if (USE_CUDA)
   message("CUDA is available!")
@@ -33,9 +33,9 @@ endif ()
 # set flags for TensorRT availability
 option(TRT_AVAIL "TensorRT available" OFF)
 # try to find the tensorRT modules
-find_library(NVINFER libnvinfer.so /home/jjho/software/TensorRT-7.0.0.11/lib)
-find_library(NVPARSERS libnvparsers.so /home/jjho/software/TensorRT-7.0.0.11/lib)
-find_library(NVONNXPARSERS libnvonnxparser.so /home/jjho/software/TensorRT-7.0.0.11/lib)
+find_library(NVINFER libnvinfer.so /home/nvidia/software/TensorRT-7.0.0.11/lib)
+find_library(NVPARSERS libnvparsers.so /home/nvidia/software/TensorRT-7.0.0.11/lib)
+find_library(NVONNXPARSERS libnvonnxparser.so /home/nvidia/software/TensorRT-7.0.0.11/lib)
 # try to find the tensorRT modules
 # find_library(NVINFER libnvinfer.so)
 # find_library(NVPARSERS libnvparsers.so)
