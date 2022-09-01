@@ -1,6 +1,6 @@
 <launch>
-  <arg name="ONNX_Path" default="/home/nvidia/workspace/models/livox_detection_sim.onnx" />
-  <arg name="engine_Path" default="/home/nvidia/workspace/models/livox_detection_sim.engine" />
+  <arg name="ONNX_Path" default="/media/workspace/livox_detect/src/livox_detect/models/livox_detection_sim.onnx" />
+  <arg name="engine_Path" default="/media/workspace/livox_detect/src/livox_detect/models/livox_detection_sim.engine" />
 
   <node name="rviz" pkg="rviz" type="rviz" args="-d $(find livox_detect)/rviz/kitti.rviz"/>
 

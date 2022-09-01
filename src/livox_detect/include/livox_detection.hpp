@@ -147,7 +147,7 @@ private:
 
     std::string ONNX_Path;
     std::string engine_Path;
-    float theta = 0;
+    float theta = -M_PI/38;
     int input_batch = 1;
     int input_numel = input_batch * BEV_C * BEV_H * BEV_W;
     const int OUTPUT_SIZE = 1 * 9 * 500;

@@ -47,8 +47,8 @@
 
 #define checkRuntime(op) __check_cuda_runtime((op), #op, __FILE__, __LINE__)
 
-std::string ONNX_Path = "/media/workspace/livox_detect/src/livox_detect/models/livox_backbone_sim.onnx";
-std::string engine_Path = "/media/workspace/livox_detect/src/livox_detect/models/livox_backbone_sim.engine";
+std::string ONNX_Path = "/media/workspace/livox_detect/src/livox_detect/models/livox_detection_sim.onnx";
+std::string engine_Path = "/media/workspace/livox_detect/src/livox_detect/models/livox_detection_sim.engine";
 
 bool __check_cuda_runtime(cudaError_t code, const char *op, const char *file, int line)
 {
@@ -625,7 +625,7 @@ void livox_detection::pointsCallback(const sensor_msgs::PointCloud2::ConstPtr &m
 
 void livox_detection::createROSPubSub()
 {
-    sub_points_ = nh_.subscribe<sensor_msgs::PointCloud2>("/livox/lidar", 1, &livox_detection::pointsCallback, this);
+    sub_points_ = nh_.subscribe<sensor_msgs::PointCloud2>("/livox_full_cloud", 100, &livox_detection::pointsCallback, this);
     pub_objects_ = nh_.advertise<autoware_msgs::DetectedObjectArray>("/detection/lidar_detector_3d/objects", 1);
     pub_objects_marker_ = nh_.advertise<visualization_msgs::MarkerArray>("/detection/pointpillars_objects", 1);
 }

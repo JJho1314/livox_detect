@@ -13,7 +13,11 @@ int main(int argc, char **argv)
 
     livox_detection livox;
     livox.createROSPubSub();
-    ros::spin();
+
+    while (ros::ok())
+    {
+        ros::spinOnce();
+    }
 
     return 0;
 }
