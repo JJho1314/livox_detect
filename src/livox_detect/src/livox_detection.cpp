@@ -47,6 +47,9 @@
 
 #define checkRuntime(op) __check_cuda_runtime((op), #op, __FILE__, __LINE__)
 
+std::string ONNX_Path = "/media/workspace/livox_detect/src/livox_detect/models/livox_backbone_sim.onnx";
+std::string engine_Path = "/media/workspace/livox_detect/src/livox_detect/models/livox_backbone_sim.engine";
+
 bool __check_cuda_runtime(cudaError_t code, const char *op, const char *file, int line)
 {
     if (code != cudaSuccess)
@@ -99,6 +102,67 @@ std::vector<unsigned char> load_file(const std::string &file)
     return data;
 }
 
+// 上一节的代码
+bool build_model()
+{
+    if (exists(engine_Path.c_str()))
+    {
+        printf("Engine file has exists.\n");
+        return true;
+    }
+
+    TRTLogger logger;
+
+    // 这是基本需要的组件
+    auto builder = make_nvshared(nvinfer1::createInferBuilder(logger));
+    auto config = make_nvshared(builder->createBuilderConfig());
+    auto network = make_nvshared(builder->createNetworkV2(1));
+
+    // 通过onnxparser解析器解析的结果会填充到network中，类似addConv的方式添加进去
+    auto parser = make_nvshared(nvonnxparser::createParser(*network, logger));
+    if (!parser->parseFromFile(ONNX_Path.c_str(), 1))
+    {
+        printf("Failed to parse onnx\n");
+
+        // 注意这里的几个指针还没有释放，是有内存泄漏的，后面考虑更优雅的解决
+        return false;
+    }
+
+    int maxBatchSize = 1;
+    printf("Workspace Size = %.2f MB\n", (1 << 28) / 1024.0f / 1024.0f);
+    config->setMaxWorkspaceSize(1 << 28);
+
+    // 如果模型有多个输入，则必须多个profile
+    auto profile = builder->createOptimizationProfile();
+    auto input_tensor = network->getInput(0);
+    auto input_dims = input_tensor->getDimensions();
+
+    // 配置最小、最优、最大范围
+    input_dims.d[0] = 1;
+    profile->setDimensions(input_tensor->getName(), nvinfer1::OptProfileSelector::kMIN, input_dims);
+    profile->setDimensions(input_tensor->getName(), nvinfer1::OptProfileSelector::kOPT, input_dims);
+    input_dims.d[0] = maxBatchSize;
+    profile->setDimensions(input_tensor->getName(), nvinfer1::OptProfileSelector::kMAX, input_dims);
+    config->addOptimizationProfile(profile);
+
+    auto engine = make_nvshared(builder->buildEngineWithConfig(*network, *config));
+    if (engine == nullptr)
+    {
+        printf("Build engine failed.\n");
+        return false;
+    }
+
+    // 将模型序列化，并储存为文件
+    auto model_data = make_nvshared(engine->serialize());
+    FILE *f = fopen(engine_Path.c_str(), "wb");
+    fwrite(model_data->data(), 1, model_data->size(), f);
+    fclose(f);
+
+    // 卸载顺序按照构建顺序倒序
+    printf("Done.\n");
+    return true;
+}
+
 void livox_detection::initTRT()
 {
     TRTLogger logger;
@@ -117,7 +181,9 @@ void livox_detection::initTRT()
 
 livox_detection::livox_detection() : private_nh_("~")
 {
+    private_nh_.param<std::string>("ONNX_Path", ONNX_Path, "");
     private_nh_.param<std::string>("engine_Path", engine_Path, "");
+
     initTRT();
 }
 
@@ -234,14 +300,14 @@ void livox_detection::doprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pc
 
     checkRuntime(cudaMallocHost(&input_data_host, input_numel * sizeof(float)));
     checkRuntime(cudaMalloc(&input_data_device, input_numel * sizeof(float)));
-
+    double t0 = ros::Time::now().toSec();
     preprocess(in_pcl_pc_ptr, transformed_cloud_ptr, input_data_host);
-
+    double t1 = ros::Time::now().toSec();
+    printf("preprocess this frame takes %f ms\n\n", (t1 - t0) * 1000);
     ///////////////////////////////////////////////////
     // image to float
 
     ///////////////////////////////////////////////////
-
     cudaStream_t stream = nullptr;
     checkRuntime(cudaStreamCreate(&stream));
 
@@ -261,7 +327,12 @@ void livox_detection::doprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pc
     checkRuntime(cudaMemcpyAsync(output_data_host, output_data_device, OUTPUT_SIZE * sizeof(float), cudaMemcpyDeviceToHost, stream));
     checkRuntime(cudaStreamSynchronize(stream));
 
+    double t2 = ros::Time::now().toSec();
+    printf("infer this frame takes %f ms\n\n", (t2 - t1) * 1000);
+
     postprocess(output_data_host, pre_box);
+    double t3 = ros::Time::now().toSec();
+    printf("postprocess this frame takes %f ms\n\n", (t3 - t2) * 1000);
 
     checkRuntime(cudaStreamDestroy(stream));
 
@@ -521,7 +592,7 @@ void livox_detection::pointsCallback(const sensor_msgs::PointCloud2::ConstPtr &m
 {
     pcl::PointCloud<pcl::PointXYZ>::Ptr pcl_pc_ptr(new pcl::PointCloud<pcl::PointXYZ>);
     pcl::fromROSMsg(*msg, *pcl_pc_ptr);
-    double start_time = ros::Time::now().toSec();
+    // double start_time = ros::Time::now().toSec();
 
     // 去除128中的nan点
     pcl::PointCloud<pcl::PointXYZ>::Ptr filtered_cloud_ptr(new pcl::PointCloud<pcl::PointXYZ>);
@@ -544,9 +615,12 @@ void livox_detection::pointsCallback(const sensor_msgs::PointCloud2::ConstPtr &m
     pcl::transformPointCloud(*pcl_pc_ptr, *out_pcl_pc_ptr, transform);
 
     std::vector<Box> pre_box;
+    double start_time = ros::Time::now().toSec();
     doprocess(out_pcl_pc_ptr, pre_box);
 
     pubDetectedObject_Marker(pre_box, msg->header);
+    double end_time = ros::Time::now().toSec();
+    printf("deal this frame takes %f ms\n\n", (end_time - start_time) * 1000);
 }
 
 void livox_detection::createROSPubSub()

@@ -145,6 +145,7 @@ private:
     int dev_filter_count_;
     long *dev_keep_data_;
 
+    std::string ONNX_Path;
     std::string engine_Path;
     float theta = 0;
     int input_batch = 1;

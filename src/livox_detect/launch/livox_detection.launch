@@ -1,9 +1,11 @@
 <launch>
-  <arg name="engine_Path" default="/home/jjho/code/my_project/livox_detect/src/livox_detect/models/livox_detection_sim.engine" />
+  <arg name="ONNX_Path" default="/home/nvidia/workspace/models/livox_detection_sim.onnx" />
+  <arg name="engine_Path" default="/home/nvidia/workspace/models/livox_detection_sim.engine" />
 
   <node name="rviz" pkg="rviz" type="rviz" args="-d $(find livox_detect)/rviz/kitti.rviz"/>
 
   <node pkg="livox_detect" type="livox_detect" name="livox_detect" output="screen" >
+    <param name="ONNX_Path"   value="$(arg ONNX_Path)" />
     <param name="engine_Path"   value="$(arg engine_Path)" />
   </node>
 
