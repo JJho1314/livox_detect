@@ -40,7 +40,7 @@
 #define checkRuntime(op) __check_cuda_runtime((op), #op, __FILE__, __LINE__)
 
 std::string ONNX_Path = "/media/workspace/livox_detect/models/livox_detection_sim.onnx";
-std::string engine_Path = "/media/workspace/livox_detect/models/livox_detection_sim.engine";
+std::string engine_Path = "/media/workspace/livox_detect/models/livox.engine";
 
 bool __check_cuda_runtime(cudaError_t code, const char *op, const char *file, int line)
 {
@@ -108,7 +108,9 @@ bool build_model()
     // 这是基本需要的组件
     auto builder = make_nvshared(nvinfer1::createInferBuilder(logger));
     auto config = make_nvshared(builder->createBuilderConfig());
-    auto network = make_nvshared(builder->createNetworkV2(1));
+    const auto explicitBatch = static_cast<uint32_t>(1u) << static_cast<uint32_t>(
+                                   nvinfer1::NetworkDefinitionCreationFlag::kEXPLICIT_BATCH);
+    auto network = make_nvshared(builder->createNetworkV2(explicitBatch));
 
     // 通过onnxparser解析器解析的结果会填充到network中，类似addConv的方式添加进去
     auto parser = make_nvshared(nvonnxparser::createParser(*network, logger));
@@ -124,18 +126,21 @@ bool build_model()
     printf("Workspace Size = %.2f MB\n", (1 << 28) / 1024.0f / 1024.0f);
     config->setMaxWorkspaceSize(1 << 28);
 
-    // 如果模型有多个输入，则必须多个profile
-    auto profile = builder->createOptimizationProfile();
-    auto input_tensor = network->getInput(0);
-    auto input_dims = input_tensor->getDimensions();
+    config->setFlag(nvinfer1::BuilderFlag::kGPU_FALLBACK);
 
-    // 配置最小、最优、最大范围
-    input_dims.d[0] = 1;
-    profile->setDimensions(input_tensor->getName(), nvinfer1::OptProfileSelector::kMIN, input_dims);
-    profile->setDimensions(input_tensor->getName(), nvinfer1::OptProfileSelector::kOPT, input_dims);
-    input_dims.d[0] = maxBatchSize;
-    profile->setDimensions(input_tensor->getName(), nvinfer1::OptProfileSelector::kMAX, input_dims);
-    config->addOptimizationProfile(profile);
+    if (builder->platformHasFastFp16())
+    {
+        config->setFlag(nvinfer1::BuilderFlag::kFP16);
+        builder->setFp16Mode(true);
+        builder->setHalf2Mode(true);
+        
+        // config->setFlag(builderFlag::kSTRICT_TYPES);
+        printf("support fp16! \n");
+    }
+    else
+    {
+        printf("not support fp16! \n");
+    }
 
     auto engine = make_nvshared(builder->buildEngineWithConfig(*network, *config));
     if (engine == nullptr)
@@ -303,9 +308,10 @@ void livox_detection::doprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pc
 
     checkRuntime(cudaMallocHost(&input_data_host, input_numel * sizeof(float)));
     checkRuntime(cudaMalloc(&input_data_device, input_numel * sizeof(float)));
-
+    std::chrono::system_clock::time_point now = std::chrono::system_clock::now();
+    auto t1 = std::chrono::steady_clock::now();
     preprocess(in_pcl_pc_ptr, transformed_cloud_ptr, input_data_host);
-    clock_t start = clock();
+
     ///////////////////////////////////////////////////
     // image to float
 
@@ -328,14 +334,16 @@ void livox_detection::doprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pc
     bool success = execution_context->enqueueV2((void **)bindings, stream, nullptr);
     checkRuntime(cudaMemcpyAsync(output_data_host, output_data_device, OUTPUT_SIZE * sizeof(float), cudaMemcpyDeviceToHost, stream));
     checkRuntime(cudaStreamSynchronize(stream));
+    auto t2 = std::chrono::steady_clock::now();
+    double time1 = std::chrono::duration<double, std::milli>(t2 - t1).count();
+    printf("  infer cost time : %lf  ms ", time1);
 
     std::vector<Box> Box_Vehicle;
 
     postprocess(output_data_host, Box_Vehicle);
 
     checkRuntime(cudaStreamDestroy(stream));
-    clock_t end = clock();
-    printf("Total time: %lf s \n", (double)(end - start) / CLOCKS_PER_SEC);
+
     std::cout << "livox detect infer finish" << std::endl;
 
     checkRuntime(cudaFreeHost(input_data_host));

@@ -38,7 +38,7 @@
 
 void inference()
 {
-    std::string data_path = "/media/workspace/livox_detect/data/livox.pcd";
+    std::string data_path = "/media/workspace/livox_detect/data/1589169525_9.pcd";
     pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud(new pcl::PointCloud<pcl::PointXYZ>);
     if (pcl::io::loadPCDFile<pcl::PointXYZ>(data_path, *input_cloud) == -1)
     {
