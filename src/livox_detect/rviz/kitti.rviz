@@ -456,7 +456,7 @@ Visualization Manager:
           Channel Name: intensity
           Class: rviz/PointCloud2
           Color: 255; 255; 255
-          Color Transformer: RGB8
+          Color Transformer: Intensity
           Decay Time: 0
           Enabled: true
           Invert Rainbow: false
@@ -466,10 +466,10 @@ Visualization Manager:
           Position Transformer: XYZ
           Queue Size: 10
           Selectable: true
-          Size (Pixels): 5
+          Size (Pixels): 3
           Size (m): 0.009999999776482582
           Style: Points
-          Topic: /livox/lidar
+          Topic: /livox_full_cloud
           Unreliable: false
           Use Fixed Frame: true
           Use rainbow: true
@@ -668,16 +668,16 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 19.582504272460938
+      Distance: 51.10423278808594
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 27.744735717773438
-        Y: -6.068050384521484
-        Z: 12.700215339660645
+        X: 18.711523056030273
+        Y: -0.11512601375579834
+        Z: 9.523289680480957
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
@@ -686,7 +686,7 @@ Visualization Manager:
       Pitch: 1.2297977209091187
       Target Frame: base_link
       Value: Orbit (rviz)
-      Yaw: 3.1549997329711914
+      Yaw: 3.1499996185302734
     Saved: ~
 Window Geometry:
   DecisionMakerPanel:
@@ -708,5 +708,5 @@ Window Geometry:
   Views:
     collapsed: true
   Width: 1853
-  X: 75
+  X: 67
   Y: 34

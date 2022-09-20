@@ -335,6 +335,10 @@ void livox_detection::doprocess(const pcl::PointCloud<pcl::PointXYZ>::Ptr &in_pc
     printf("postprocess this frame takes %f ms\n\n", (t3 - t2) * 1000);
 
     checkRuntime(cudaStreamDestroy(stream));
+    checkRuntime(cudaFreeHost(input_data_host));
+    checkRuntime(cudaFreeHost(output_data_host));
+    checkRuntime(cudaFree(input_data_device));
+    checkRuntime(cudaFree(output_data_device));
 
     std::cout << "livox detect infer finish" << std::endl;
 }
@@ -635,9 +639,4 @@ livox_detection::~livox_detection()
     execution_context->destroy();
     runtime->destroy();
     engine->destroy();
-
-    checkRuntime(cudaFreeHost(input_data_host));
-    checkRuntime(cudaFreeHost(output_data_host));
-    checkRuntime(cudaFree(input_data_device));
-    checkRuntime(cudaFree(output_data_device));
 }
